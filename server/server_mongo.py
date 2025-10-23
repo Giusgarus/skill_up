@@ -22,6 +22,7 @@ try:
     user_collection = mongo_db["users"]
     sessions_collection = mongo_db["sessions"]
     user_data_collection = mongo_db["user_data"]
+    leaderboard = mongo_db["leaderboard"]
 except Exception:
     print("Warning: Could not connect to MongoDB.")
     exit(1)
@@ -30,6 +31,22 @@ SCRYPT_N = 2**14  # CPU/memory cost factor
 SCRYPT_R = 8      # block size
 SCRYPT_P = 8      # parallelization factor
 MIN_LEN_PASSWORD = 8
+LEADERBOARD_K = 10
+
+def verify_session(token: str):
+    session = sessions_collection.find_one({"token": token})
+    if not session:
+        return [False, ""]
+    return [True, session.get("user_id")]
+
+def leaderboard_upsert_and_trim(*, user_id: str, score: int, K: int = LEADERBOARD_K) -> None:
+    leaderboard_collection.update_one({"user_id": user_id}, {"$set": {"score": int(score)}}, upsert = True)
+    total = leaderboard_collection.estimated_document_count()
+    if total <= K:
+        return
+    keep_docs = list(leaderboard_collection.find({}, {"user_id": 1}).sort([("score", -1), ("user_id", 1)]).limit(K))
+    keep_ids = [d["user_id"] for d in keep_docs]
+    leaderboard_collection.delete_many({"user_id": {"$nin": keep_ids}})
 
 def hash_password(password: str) -> str:
     if not check_register_password(password):
@@ -81,6 +98,15 @@ class PromptInput(BaseModel):
     token: str
     prompt: str
 
+class ScoreUpdateInput(BaseModel):
+    username: str
+    token: str
+
+class TaskDone(BaseModel):
+    token: str
+    task_idx: str
+
+
 @app.post("/register", status_code=201)
 def register_user(input: RegisterInput) -> Dict[str, str]:
     username = input.username.strip()
@@ -94,8 +120,8 @@ def register_user(input: RegisterInput) -> Dict[str, str]:
         raise HTTPException(status_code = 400, detail = "Password does not meet complexity requirements")
     user_id = str(uuid.uuid4())
     password_hash = hash_password(password)
-    user_collection.insert_one({"username": username, "password_hash": password_hash, "_id": user_id})
-    user_data_collection.insert_one({"_id": user_id, "info": user_info})
+    user_collection.insert_one({"username": username, "password_hash": password_hash, "user_id": user_id})
+    user_data_collection.insert_one({"user_id": user_id, "info": user_info, "score" : 0})
     return {"id": user_id, "username": username}
 
 @app.post("/login")
@@ -106,7 +132,7 @@ def login_user(creds: LoginInput) -> Dict[str, str]:
     user = user_collection.find_one({"username": username})
     if not user or not verify_password(user.get("password_hash", ""), creds.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    user_id = user["_id"]
+    user_id = user["user_id"]
     for _ in range(6):
         token = generate_token()
         try:
@@ -118,21 +144,31 @@ def login_user(creds: LoginInput) -> Dict[str, str]:
         raise HTTPException(status_code=500, detail="Could not create a session token")
     return {"token": token, "id": user_id, "username": username}
 
+@app.post("/task_done")
+def task_done(input: TaskDone):
+    token = input.token
+    task_idx = input.task_idx
+    valid_token, user_id = verify_session(token)
+    if not valid_token:
+        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+    user_info = user_data_collection.find_one({"user_id": user_id})
+    today_tasks = user_info.get("tasks").get(str(datetime.date.today()))
+    today_tasks[task_idx].done = True
+    user_info.score += today_tasks[task_idx].score
 
 @app.post("/prompt")
 def get_llm_response(input: PromptInput) -> Dict[str, str]:
     username = input.username
     token = input.token
     prompt = input.prompt
-    session = sessions_collection.find_one({"token": token})
-    if not session:
+    valid_token, user_id = verify_session(token)
+    if not valid_token:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    user_id = session.get("user_id")
-    user_info = user_data_collection.find_one({"_id": user_id})
+    user_info = user_data_collection.find_one({"user_id": user_id})
     if not user_info:
         user_info = {}
     # Manda un JSON al server LLM e ottieni la risposta
     request_data = {"prompt": prompt, "user_info": user_info}
-    # Qui dovresti implementare la chiam
+    # Qui dovresti implementare la chiamata al server di mos
     llm_response = send_json_to_llm_server(request_data)
     return {"llm_response": llm_response}
