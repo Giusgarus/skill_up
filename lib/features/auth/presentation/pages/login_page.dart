@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../../presentation/widgets/auth_scaffold.dart';
 import '../../presentation/widgets/pill_text_field.dart';
 import '../../../../shared/widgets/field_label.dart';
 import '../../../../shared/widgets/round_arrow_button.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -18,7 +18,6 @@ class _LoginPageState extends State<LoginPage> {
   final _emailC = TextEditingController();
   final _pwdC = TextEditingController();
   bool _loading = false;
-  bool _obscure = true;
 
   @override
   void dispose() {
@@ -30,10 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
-
-    // TODO: call your AuthService.signIn(...)
     await Future.delayed(const Duration(milliseconds: 800));
-
     if (!mounted) return;
     setState(() => _loading = false);
     ScaffoldMessenger.of(context)
@@ -44,6 +40,18 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return AuthScaffold(
       title: 'Login',
+      // ⬇️ Passa l'SVG invece del testo
+      titleWidget: Semantics(
+        label: 'Login', // accessibilità
+        child: SvgPicture.asset(
+          'assets/brand/login_title.svg',
+          height: 40,        // regola a gusto; prova 40–56
+          fit: BoxFit.contain,
+          // Per “tingere” TUTTA la grafica (solo SVG monocromatico):
+          // colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+        ),
+      ),
+
       form: Form(
         key: _formKey,
         child: Column(
@@ -63,23 +71,11 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 14),
             const FieldLabel('Put your password:'),
-            StatefulBuilder(
-              // Local state only for obscuring toggle
-              builder: (context, setLocal) {
-                bool obscure = true;
-                return PillTextField(
-                  controller: _pwdC,
-                  hint: 'password . . .',
-                  obscureText: obscure,
-                  validator: (v) =>
-                  (v == null || v.isEmpty) ? 'Password required' : null,
-                  suffix: IconButton(
-                    tooltip: obscure ? 'Show password' : 'Hide password',
-                    icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setLocal(() => obscure = !obscure),
-                  ),
-                );
-              },
+            PillTextField(
+              controller: _pwdC,
+              hint: 'password . . .',
+              obscureText: true,
+              validator: (v) => (v == null || v.isEmpty) ? 'Password required' : null,
             ),
             const SizedBox(height: 22),
             RoundArrowButton(
@@ -88,7 +84,6 @@ class _LoginPageState extends State<LoginPage> {
               svgAsset: 'assets/icons/send_icon.svg',
               iconSize: 32,
               tooltip: 'Accedi',
-              // svgColor: Colors.black,
             ),
           ],
         ),

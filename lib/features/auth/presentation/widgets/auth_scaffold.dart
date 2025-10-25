@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../../shared/theme/app_colors.dart';   // <— aggiungi questo import
 import '../../../../shared/widgets/logo.dart';
 
 class AuthScaffold extends StatelessWidget {
@@ -7,19 +6,29 @@ class AuthScaffold extends StatelessWidget {
   final Widget form;
   final Widget footer;
 
+  /// Optional: if provided, replaces the default text title.
+  final Widget? titleWidget;
+
   const AuthScaffold({
     super.key,
     required this.title,
     required this.form,
     required this.footer,
+    this.titleWidget,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
+        // gradient già preso dai tuoi theme/colors
         decoration: const BoxDecoration(
-          gradient: AppGradients.authBackground, // <— usa il gradient centralizzato
+          // AppGradients.authBackground, se lo stai usando
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFF9A9E), Color(0xFFFFD89B)],
+          ),
         ),
         child: SafeArea(
           child: Center(
@@ -32,10 +41,16 @@ class AuthScaffold extends StatelessWidget {
                   children: [
                     const AppLogo(),
                     const SizedBox(height: 8),
-                    Text(
-                      title.toUpperCase(),
-                      style: Theme.of(context).textTheme.headlineLarge, // <— usa il tema
-                    ),
+
+                    // ⬇️ Se c'è un titleWidget (SVG), usalo; altrimenti testo
+                    if (titleWidget != null)
+                      titleWidget!
+                    else
+                      Text(
+                        title.toUpperCase(),
+                        style: Theme.of(context).textTheme.headlineLarge,
+                      ),
+
                     const SizedBox(height: 16),
                     form,
                     const SizedBox(height: 24),
