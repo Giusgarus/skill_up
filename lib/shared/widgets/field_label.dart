@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Small bold label displayed above inputs.
 class FieldLabel extends StatelessWidget {
   final String text;
   const FieldLabel(this.text, {super.key});
@@ -9,11 +8,7 @@ class FieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: TextStyle(
-        fontWeight: FontWeight.w900,
-        fontSize: 18,
-        color: Colors.black.withOpacity(0.9),
-      ),
+      style: Theme.of(context).textTheme.labelLarge, // <— dal tema
     );
   }
 }

@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
 
-/// Centralized gradients and brand colors.
+/// Brand colors (e altre palette utili)
+class AppColors {
+  const AppColors._();
+
+  static const Color brandPrimary   = Color(0xFFFF9A9E); // #FF9A9E
+  static const Color brandSecondary = Color(0xFFFFD89B); // #FFD89B
+}
+
+/// Gradients centralizzati
 class AppGradients {
   const AppGradients._();
 
-  /// Auth/background gradient: #FF9A9E -> #FFD89B (top -> bottom).
+  /// Auth/background gradient: #FF9A9E -> #FFD89B (top -> bottom)
   static const LinearGradient authBackground = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFFFF9A9E), // from #FF9A9E
-      Color(0xFFFFD89B), // to   #FFD89B
+      AppColors.brandPrimary,
+      AppColors.brandSecondary,
     ],
   );
 }

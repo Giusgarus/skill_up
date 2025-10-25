@@ -34,12 +34,7 @@ class AuthScaffold extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       title.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 40,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.5,
-                      ),
+                      style: Theme.of(context).textTheme.headlineLarge, // <— usa il tema
                     ),
                     const SizedBox(height: 16),
                     form,
