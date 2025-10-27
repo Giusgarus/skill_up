@@ -79,6 +79,17 @@ def check_register_password(password: str) -> bool:
         return False
     return True
 
+def generate_session(user_id: str) -> str:
+    for _ in range(6):
+        token = generate_token()
+        try:
+            sessions_collection.insert_one({"token": token, "user_id": user_id, "created_at": datetime.datetime.now(UTC)})
+            return token
+        except pymongo_errors.DuplicateKeyError:
+            token = None  # try again
+    else:
+        raise HTTPException(status_code = 500, detail = "Could not create a session token")
+    
 app = FastAPI(title = "Skill-Up Server", version = "1.0")
 
 
@@ -121,9 +132,13 @@ def register_user(input: RegisterInput) -> Dict[str, str]:
         raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
     user_id = str(uuid.uuid4())
     password_hash = hash_password(password)
-    user_collection.insert_one({"username": username, "password_hash": password_hash, "user_id": user_id, "user_mail" : email})
-    user_data_collection.insert_one({"user_id": user_id, "info": user_info, "score" : 0})
-    return {"id": user_id, "username": username}
+    try:
+        user_collection.insert_one({"username": username, "password_hash": password_hash, "user_id": user_id, "user_mail" : email})
+        user_data_collection.insert_one({"user_id": user_id, "info": user_info, "score" : 0, "creation_time" : datetime.datetime.now(UTC)})
+        token = generate_session(user_id)
+        return {"token": token, "username": username}
+    except:
+        return {}
 
 @app.post("/login", status_code = 201)
 def login_user(creds: LoginInput) -> Dict[str, str]:
@@ -134,28 +149,33 @@ def login_user(creds: LoginInput) -> Dict[str, str]:
     if not user or not verify_password(user.get("password_hash", ""), creds.password):
         raise HTTPException(status_code = 401, detail = "Invalid username or password")
     user_id = user["user_id"]
-    for _ in range(6):
-        token = generate_token()
-        try:
-            sessions_collection.insert_one({"token": token, "user_id": user_id, "created_at": datetime.datetime.now(UTC)})
-            break
-        except pymongo_errors.DuplicateKeyError:
-            token = None  # try again
-    else:
-        raise HTTPException(status_code = 500, detail = "Could not create a session token")
-    return {"token": token, "id": user_id, "username": username}
+    try:
+        token = generate_session(user_id)
+        return {"token": token, "username": username}
+    except:
+        return {}
 
 @app.post("/task_done")
 def task_done(input: TaskDone):
-    token = input.token
-    task_idx = input.task_idx
-    valid_token, user_id = verify_session(token)
-    if not valid_token:
-        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    user_info = user_data_collection.find_one({"user_id": user_id})
-    today_tasks = user_info.get("tasks").get(str(datetime.date.today()))
-    today_tasks[task_idx].done = True
-    user_info.score += today_tasks[task_idx].score
+    # WRONG FUNCTION, NEED TO BE REDONE
+    ok, user_id = verify_session(input.token)
+    if not ok: raise HTTPException(401, "Invalid or missing token")
+    date = input.date or datetime.datetime.now(UTC).date().isoformat()
+    ud = user_data_collection.find_one({"user_id": user_id}, {"tasks."+date: 1, "score": 1})
+    if not ud or date not in ud.get("tasks", {}):
+        raise HTTPException(404, "No tasks for date")
+    tasks = ud["tasks"][date]
+    if input.task_idx < 0 or input.task_idx >= len(tasks):
+        raise HTTPException(400, "task_idx out of bounds")
+    task = tasks[input.task_idx]
+    if task.get("done"): raise HTTPException(409, "Task already done")
+    task["done"] = True
+    task["completed_at"] = datetime.datetime.now(UTC)
+    # Persist task change and increment score in one update
+    user_data_collection.update_one({"user_id": user_id},{"$set": {f"tasks.{date}.{input.task_idx}": task},"$inc": {"score": int(task.get("score", 0))}})
+    leaderboard.update_one({"user_id": user_id}, {"$set": {"score": ud["score"] + task.get("score", 0)}}, upsert=True)
+    leaderboard_upsert_and_trim(user_id=user_id, score=ud["score"] + task.get("score", 0))
+    return {"score": ud["score"] + task.get("score", 0), "task": task}
 
 @app.post("/prompt")
 def get_llm_response(input: PromptInput) -> Dict[str, str]:

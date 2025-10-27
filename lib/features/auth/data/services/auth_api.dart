@@ -39,7 +39,7 @@ class AuthApi {
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-      return _toResult(response);
+      return _toResult(response, requestedUsername: username);
     } on SocketException catch (_) {
       return const AuthResult.error('No internet connection. Please retry.');
     } on HttpException catch (_) {
@@ -89,7 +89,7 @@ class AuthApi {
 
   void close() => _client.close();
 
-  AuthResult _toResult(http.Response response) {
+  AuthResult _toResult(http.Response response, {String? requestedUsername}) {
     Map<String, dynamic>? body;
     if (response.body.isNotEmpty) {
       try {
@@ -101,13 +101,25 @@ class AuthApi {
 
     final isSuccess = response.statusCode == 201;
     if (isSuccess) {
-      final id = body?['id'] as String?;
-      final username = body?['username'] as String?;
+      final token = body?['token'] as String?;
+      final responseUsername = body?['username'] as String?;
+      final resolvedUsername = (responseUsername?.trim().isEmpty ?? true)
+          ? (requestedUsername?.trim().isEmpty ?? true
+                ? null
+                : requestedUsername!.trim())
+          : responseUsername!.trim();
+
+      AuthSession? session;
+      if (token != null && resolvedUsername != null) {
+        session = AuthSession(token: token, username: resolvedUsername);
+      }
+
       return AuthResult.success(
-        id ??
-            (username != null
-                ? 'Welcome, $username!'
-                : 'Registration completed.'),
+        session != null
+            ? 'Welcome, ${session.username}!'
+            : 'Registration completed.',
+        statusCode: response.statusCode,
+        session: session,
       );
     }
 
@@ -115,6 +127,7 @@ class AuthApi {
     return AuthResult.error(
       (error is String ? error : null) ??
           'Registration failed. (${response.statusCode})',
+      statusCode: response.statusCode,
     );
   }
 
@@ -131,11 +144,10 @@ class AuthApi {
     final isSuccess = response.statusCode == 201;
     if (isSuccess) {
       final token = body?['token'] as String?;
-      final id = body?['id'] as String?;
       final username = body?['username'] as String?;
-      if (token != null && id != null && username != null) {
+      if (token != null && username != null) {
         return LoginResult.success(
-          AuthSession(token: token, username: username, userId: id),
+          AuthSession(token: token, username: username),
         );
       }
       return const LoginResult.error('Incomplete response from server.');
@@ -150,18 +162,25 @@ class AuthApi {
 }
 
 class AuthResult {
-  const AuthResult.success(this.message)
+  const AuthResult.success(this.message, {this.statusCode, this.session})
     : errorMessage = null,
       error = null,
       stackTrace = null;
 
-  const AuthResult.error(this.errorMessage, {this.error, this.stackTrace})
-    : message = null;
+  const AuthResult.error(
+    this.errorMessage, {
+    this.error,
+    this.stackTrace,
+    this.statusCode,
+  }) : message = null,
+       session = null;
 
   final String? message;
   final String? errorMessage;
   final Object? error;
   final StackTrace? stackTrace;
+  final int? statusCode;
+  final AuthSession? session;
 
   bool get isSuccess => errorMessage == null;
 }
