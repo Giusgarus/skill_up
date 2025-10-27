@@ -4,7 +4,7 @@ import 'app_colors.dart';
 
 class AppTheme {
   static ThemeData light() => _base(brightness: Brightness.light);
-  static ThemeData dark()  => _base(brightness: Brightness.dark);
+  static ThemeData dark() => _base(brightness: Brightness.dark);
 
   static ThemeData _base({required Brightness brightness}) {
     final colorScheme = ColorScheme.fromSeed(
@@ -28,7 +28,7 @@ class AppTheme {
     final fieldLabel = baseText.titleMedium?.copyWith(
       fontWeight: FontWeight.w900,
       fontSize: 18,
-      color: Colors.black.withOpacity(0.9),
+      color: Colors.black.withValues(alpha: 0.9),
     );
 
     return ThemeData(
@@ -44,9 +44,12 @@ class AppTheme {
         isDense: true,
         filled: true,
         fillColor: brightness == Brightness.light
-            ? Colors.white.withOpacity(0.95)
+            ? Colors.white.withValues(alpha: 0.95)
             : colorScheme.surfaceContainerHighest,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 22,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderSide: BorderSide.none,
           borderRadius: BorderRadius.circular(40),

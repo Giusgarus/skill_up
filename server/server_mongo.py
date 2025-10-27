@@ -91,7 +91,7 @@ class LoginInput(BaseModel):
 class RegisterInput(BaseModel):
     username: str
     password: str
-    user_info: User_Info
+    email: str
 
 class PromptInput(BaseModel):
     username: str
@@ -107,31 +107,32 @@ class TaskDone(BaseModel):
     task_idx: str
 
 
-@app.post("/register", status_code=201)
+@app.post("/register", status_code = 201)
 def register_user(input: RegisterInput) -> Dict[str, str]:
     username = input.username.strip()
     password = input.password
-    user_info = input.user_info
+    email = input.email
+    user_info = {}
     if not username or not password:
         raise HTTPException(status_code = 400, detail = "Username and password are required")
     if user_collection.find_one({"username": username}):
-        raise HTTPException(status_code = 400, detail = "User already exists")
+        raise HTTPException(status_code = 401, detail = "User already exists")
     if not check_register_password(password):
-        raise HTTPException(status_code = 400, detail = "Password does not meet complexity requirements")
+        raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
     user_id = str(uuid.uuid4())
     password_hash = hash_password(password)
-    user_collection.insert_one({"username": username, "password_hash": password_hash, "user_id": user_id})
+    user_collection.insert_one({"username": username, "password_hash": password_hash, "user_id": user_id, "user_mail" : email})
     user_data_collection.insert_one({"user_id": user_id, "info": user_info, "score" : 0})
     return {"id": user_id, "username": username}
 
-@app.post("/login")
+@app.post("/login", status_code = 201)
 def login_user(creds: LoginInput) -> Dict[str, str]:
     username = creds.username.strip()
     if not username or not creds.password:
-        raise HTTPException(status_code=400, detail="Username and password are required")
+        raise HTTPException(status_code = 400, detail = "Username and password are required")
     user = user_collection.find_one({"username": username})
     if not user or not verify_password(user.get("password_hash", ""), creds.password):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        raise HTTPException(status_code = 401, detail = "Invalid username or password")
     user_id = user["user_id"]
     for _ in range(6):
         token = generate_token()
@@ -141,7 +142,7 @@ def login_user(creds: LoginInput) -> Dict[str, str]:
         except pymongo_errors.DuplicateKeyError:
             token = None  # try again
     else:
-        raise HTTPException(status_code=500, detail="Could not create a session token")
+        raise HTTPException(status_code = 500, detail = "Could not create a session token")
     return {"token": token, "id": user_id, "username": username}
 
 @app.post("/task_done")

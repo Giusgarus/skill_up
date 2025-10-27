@@ -35,8 +35,11 @@ class PillTextField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: hint,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.95),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+        fillColor: Colors.white.withValues(alpha: 0.95),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 22,
+          vertical: 16,
+        ),
         border: border,
         enabledBorder: border,
         focusedBorder: border,

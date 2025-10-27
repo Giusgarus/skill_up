@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../presentation/widgets/auth_scaffold.dart';
 import '../../presentation/widgets/pill_text_field.dart';
 import '../../../../shared/widgets/field_label.dart';
 import '../../../../shared/widgets/round_arrow_button.dart';
+import '../../data/services/auth_api.dart';
+import '../../data/storage/auth_session_storage.dart';
+import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -15,25 +19,75 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _emailC = TextEditingController();
+  final _userC = TextEditingController();
   final _pwdC = TextEditingController();
+  final _authApi = AuthApi();
+  final _sessionStorage = AuthSessionStorage();
   bool _loading = false;
 
   @override
   void dispose() {
-    _emailC.dispose();
+    _userC.dispose();
     _pwdC.dispose();
+    _authApi.close();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _loading = false);
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Login completed (demo)')));
+    final username = _userC.text.trim();
+    final password = _pwdC.text;
+
+    try {
+      final result = await _authApi.login(
+        username: username,
+        password: password,
+      );
+
+      if (result.isSuccess) {
+        final session = result.session!;
+        try {
+          await _sessionStorage.saveSession(session);
+        } catch (storageError, storageStackTrace) {
+          if (kDebugMode) {
+            debugPrint('Failed to persist session: $storageError');
+            debugPrint(storageStackTrace.toString());
+          }
+        }
+        if (!mounted) return;
+        final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(content: Text('Welcome back, ${session.username}!')),
+        );
+        Navigator.pushReplacementNamed(context, HomePage.route);
+      } else {
+        if (!mounted) return;
+        final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Login failed. Please retry.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Unexpected error. Please retry later.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      if (kDebugMode) {
+        debugPrint('Login request threw: $error');
+        debugPrint(stackTrace.toString());
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -43,29 +97,20 @@ class _LoginPageState extends State<LoginPage> {
       // ⬇️ Passa l'SVG invece del testo
       titleWidget: Semantics(
         label: 'Login', // accessibilità
-        child: SvgPicture.asset(
-          'assets/brand/login_title.svg',
-          height: 40,        // regola a gusto; prova 40–56
-          fit: BoxFit.contain,
-          // Per “tingere” TUTTA la grafica (solo SVG monocromatico):
-          // colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
-        ),
       ),
 
       form: Form(
         key: _formKey,
         child: Column(
           children: [
-            const FieldLabel('Put your e-mail:'),
+            const FieldLabel('Put your username:'),
             PillTextField(
-              controller: _emailC,
-              hint: 'e-mail . . .',
-              keyboardType: TextInputType.emailAddress,
+              controller: _userC,
+              hint: 'username',
+              keyboardType: TextInputType.name,
               validator: (v) {
                 final value = v?.trim() ?? '';
-                final regex = RegExp(r'^[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,}$');
-                if (value.isEmpty) return 'E-mail required';
-                if (!regex.hasMatch(value)) return 'Invalid e-mail';
+                if (value.isEmpty) return 'Username required';
                 return null;
               },
             ),
@@ -73,9 +118,10 @@ class _LoginPageState extends State<LoginPage> {
             const FieldLabel('Put your password:'),
             PillTextField(
               controller: _pwdC,
-              hint: 'password . . .',
+              hint: 'password',
               obscureText: true,
-              validator: (v) => (v == null || v.isEmpty) ? 'Password required' : null,
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Password required' : null,
             ),
             const SizedBox(height: 22),
             RoundArrowButton(
@@ -94,7 +140,7 @@ class _LoginPageState extends State<LoginPage> {
           Text(
             "You don’t have an account? ",
             style: TextStyle(
-              color: Colors.black.withOpacity(0.85),
+              color: Colors.black.withValues(alpha: 0.85),
               fontWeight: FontWeight.w600,
             ),
           ),
