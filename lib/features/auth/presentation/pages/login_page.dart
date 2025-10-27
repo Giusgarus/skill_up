@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../../presentation/widgets/auth_scaffold.dart';
 import '../../presentation/widgets/pill_text_field.dart';
 import '../../../../shared/widgets/field_label.dart';
