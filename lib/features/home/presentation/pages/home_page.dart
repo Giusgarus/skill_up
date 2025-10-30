@@ -1,57 +1,20 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:skill_up/features/auth/data/services/auth_api.dart';
+import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
+import 'package:skill_up/features/home/data/daily_task_completion_storage.dart';
+import 'package:skill_up/features/home/data/medal_history_repository.dart';
+import 'package:skill_up/features/home/data/task_api.dart';
+import 'package:skill_up/features/home/domain/calendar_labels.dart';
+import 'package:skill_up/features/home/domain/medal_utils.dart';
+import 'package:skill_up/features/home/presentation/pages/monthly_medals_page.dart';
+import 'package:skill_up/features/profile/data/user_profile_storage.dart';
+import 'package:skill_up/features/profile/presentation/pages/user_info_page.dart';
+import 'package:skill_up/features/settings/presentation/pages/settings_page.dart';
 
-enum MedalType { none, bronze, silver, gold }
-
-const List<String> _monthNames = [
-  '',
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-
-const List<String> _weekdayShortLabels = [
-  'Mo',
-  'Tu',
-  'We',
-  'Th',
-  'Fr',
-  'Sa',
-  'Su',
-];
-
-DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
-
-String _medalAssetForType(MedalType type) {
-  switch (type) {
-    case MedalType.gold:
-      return 'assets/icons/gold_star_icon.svg';
-    case MedalType.silver:
-      return 'assets/icons/silver_star_icon.svg';
-    case MedalType.bronze:
-      return 'assets/icons/bronze_star_icon.svg';
-    case MedalType.none:
-      return 'assets/icons/blank_star_icon.svg';
-  }
-}
-
-Color? _medalTintForType(MedalType type) {
-  switch (type) {
-    case MedalType.none:
-      return Colors.black.withValues(alpha: 0.35);
-    default:
-      return null;
-  }
-}
 
 class DailyTask {
   const DailyTask({
@@ -93,54 +56,161 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  late final MedalHistoryRepository _medalRepository;
+  final DailyTaskCompletionStorage _taskCompletionStorage =
+      DailyTaskCompletionStorage.instance;
+  final UserProfileStorage _profileStorage = UserProfileStorage.instance;
+  final AuthSessionStorage _authStorage = AuthSessionStorage();
+  final TaskApi _taskApi = TaskApi();
+  AuthSession? _session;
   late final DateTime _today;
   late final List<DateTime> _currentWeek;
-  late final Map<DateTime, int?> _completedTasksByDay;
+  late Map<DateTime, int?> _completedTasksByDay;
   late List<DailyTask> _tasks;
   late DateTime _selectedDay;
   bool _isAddHabitOpen = false;
   String _newHabitGoal = '';
   final Set<int> _newHabitSelectedDays = <int>{};
+  ImageProvider? _profileImage;
 
   @override
   void initState() {
     super.initState();
-    _today = _dateOnly(DateTime.now());
+    _medalRepository = MedalHistoryRepository.instance;
+    _today = dateOnly(DateTime.now());
     _tasks = _seedTasks();
     _currentWeek = _generateWeekFor(_today);
-    _completedTasksByDay = _seedCompletedTasks(_currentWeek);
+    _completedTasksByDay = _seedMonthlyCompletedTasks();
+    _ensureWeekCoverage();
+    _seedMedalsFromCompletions();
     _selectedDay = _today;
+    _loadProfileImage();
+    _loadPersistedTaskCompletions();
+    unawaited(_ensureSession());
+  }
+
+  @override
+  void dispose() {
+    _taskApi.close();
+    super.dispose();
+  }
+
+  Future<AuthSession?> _ensureSession() async {
+    if (_session != null) {
+      return _session;
+    }
+    _session = await _authStorage.readSession();
+    if (_session != null) {
+      _medalRepository.setActiveUser(_session!.username);
+    }
+    return _session;
   }
 
   List<DateTime> _generateWeekFor(DateTime anchor) {
     final monday = anchor.subtract(Duration(days: anchor.weekday - 1));
     return List<DateTime>.generate(
       7,
-      (index) => _dateOnly(monday.add(Duration(days: index))),
+      (index) => dateOnly(monday.add(Duration(days: index))),
     );
   }
 
-  Map<DateTime, int?> _seedCompletedTasks(List<DateTime> week) {
+  Map<DateTime, int?> _seedMonthlyCompletedTasks() {
+    final monthStart = DateTime(_today.year, _today.month);
+    final daysInMonth = DateUtils.getDaysInMonth(monthStart.year, monthStart.month);
     final map = <DateTime, int?>{};
-    for (final day in week) {
-      final normalized = _dateOnly(day);
-      if (normalized.isAfter(_today)) {
-        map[normalized] = null; // future days are pending
-        continue;
-      }
-
-      if (normalized == _today) {
-        map[normalized] = _completedToday;
-        continue;
-      }
-
-      final offsetDays = _today.difference(normalized).inDays;
-      final completed = (_totalTasks - offsetDays)
-          .clamp(0, _totalTasks)
-          .toInt();
-      map[normalized] = completed;
+    for (var day = 1; day <= daysInMonth; day++) {
+      final date = DateTime(monthStart.year, monthStart.month, day);
+      map[date] = date.isAfter(_today) ? null : 0;
     }
     return map;
+  }
+
+  void _ensureWeekCoverage() {
+    for (final day in _currentWeek) {
+      final normalized = dateOnly(day);
+      _completedTasksByDay.putIfAbsent(
+        normalized,
+        () => normalized.isAfter(_today) ? null : 0,
+      );
+    }
+  }
+
+  void _seedMedalsFromCompletions() {
+    if (_session == null) {
+      return;
+    }
+    _completedTasksByDay.forEach((date, completed) {
+      final medal = completed == null
+          ? MedalType.none
+          : medalForProgress(completed: completed, total: _totalTasks);
+      _medalRepository.setMedalForDay(date, medal);
+    });
+  }
+
+  Future<void> _loadPersistedTaskCompletions() async {
+    final session = await _ensureSession();
+    if (session == null) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tasks = _tasks.map((task) => task.copyWith(isCompleted: false)).toList();
+        _completedTasksByDay = _completedTasksByDay.map((date, value) {
+          return MapEntry(date, value == null ? null : 0);
+        });
+        _seedMedalsFromCompletions();
+      });
+      return;
+    }
+    final stored = await _taskCompletionStorage.loadMonth(_today, session.username);
+    if (!mounted || stored.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      stored.forEach((date, tasks) {
+        final normalized = dateOnly(date);
+        final completedCount =
+            tasks.values.where((value) => value).length;
+        _completedTasksByDay[normalized] = completedCount;
+        if (normalized == _today) {
+          _tasks = _tasks
+              .map(
+                (task) => task.copyWith(
+                  isCompleted: tasks[task.id] ?? false,
+                ),
+              )
+              .toList();
+        }
+      });
+      _seedMedalsFromCompletions();
+    });
+  }
+
+  Future<void> _loadProfileImage() async {
+    final session = await _ensureSession();
+    if (!mounted) {
+      return;
+    }
+    if (session == null) {
+      setState(() => _profileImage = null);
+      return;
+    }
+    final file = await _profileStorage.loadProfileImage(session.username);
+    if (!mounted) {
+      return;
+    }
+    if (file == null) {
+      setState(() => _profileImage = null);
+      return;
+    }
+    final bytes = await file.readAsBytes();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _profileImage = MemoryImage(bytes);
+    });
   }
 
   List<DailyTask> _seedTasks() {
@@ -163,6 +233,24 @@ class _HomePageState extends State<HomePage> {
         description: 'Stretch your body\nfor at least 10 minutes',
         cardColor: Color(0xFFF1D16A),
       ),
+      DailyTask(
+        id: 'stretching2',
+        title: 'STRETCHING2',
+        description: 'Stretch your body\nfor at least 10 minutes',
+        cardColor: Color(0xFFF1D16A),
+      ),
+      DailyTask(
+        id: 'stretching3',
+        title: 'STRETCHING3',
+        description: 'Stretch your body\nfor at least 10 minutes',
+        cardColor: Color(0xFFF1D16A),
+      ),
+      DailyTask(
+        id: 'stretching4',
+        title: 'STRETCHING4',
+        description: 'Stretch your body\nfor at least 10 minutes',
+        cardColor: Color(0xFFF1D16A),
+      ),
     ];
   }
 
@@ -171,7 +259,7 @@ class _HomePageState extends State<HomePage> {
   int get _completedToday => _tasks.where((task) => task.isCompleted).length;
 
   int _completedForDay(DateTime day) {
-    final normalized = _dateOnly(day);
+    final normalized = dateOnly(day);
     if (normalized == _today) {
       return _completedToday;
     }
@@ -179,33 +267,16 @@ class _HomePageState extends State<HomePage> {
     return stored ?? 0;
   }
 
-  MedalType _medalForProgress({required int completed, required int total}) {
-    if (total <= 0 || completed <= 0) {
-      return MedalType.none;
-    }
-
-    if (completed >= total) {
-      return MedalType.gold;
-    }
-
-    final ratio = completed / total;
-    if (ratio >= 0.5) {
-      return MedalType.silver;
-    }
-
-    return MedalType.bronze;
-  }
-
   Map<DateTime, MedalType> _buildWeekMedals() {
     final map = <DateTime, MedalType>{};
     for (final date in _currentWeek) {
-      final normalized = _dateOnly(date);
+      final normalized = dateOnly(date);
       if (normalized.isAfter(_today)) {
         map[normalized] = MedalType.none;
         continue;
       }
       final completed = _completedForDay(normalized);
-      map[normalized] = _medalForProgress(
+      map[normalized] = medalForProgress(
         completed: completed,
         total: _totalTasks,
       );
@@ -237,33 +308,84 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _toggleTask(String id) {
-    if (_dateOnly(_selectedDay) != _today) {
+    if (dateOnly(_selectedDay) != _today) {
       return;
     }
+
+    DailyTask? toggledTask;
     setState(() {
       _tasks = _tasks
-          .map(
-            (task) => task.id == id
-                ? task.copyWith(isCompleted: !task.isCompleted)
-                : task,
-          )
+          .map((task) {
+            if (task.id == id) {
+              toggledTask = task.copyWith(isCompleted: !task.isCompleted);
+              return toggledTask!;
+            }
+            return task;
+          })
           .toList();
-      final normalizedDay = _dateOnly(_selectedDay);
+      final normalizedDay = dateOnly(_selectedDay);
       _completedTasksByDay[normalizedDay] = _completedToday;
+      final medal = medalForProgress(
+        completed: _completedToday,
+        total: _totalTasks,
+      );
+      _medalRepository.setMedalForDay(normalizedDay, medal);
+      _seedMedalsFromCompletions();
     });
+
+    final normalizedDay = dateOnly(_selectedDay);
+    final newStatus = toggledTask?.isCompleted ?? false;
+    unawaited(_persistTaskStatus(normalizedDay, id, newStatus));
   }
 
   void _selectDay(DateTime date) {
     setState(() {
-      _selectedDay = _dateOnly(date);
+      _selectedDay = dateOnly(date);
     });
+  }
+
+  Future<void> _persistTaskStatus(
+    DateTime day,
+    String taskId,
+    bool isCompleted,
+  ) async {
+    final session = await _ensureSession();
+    if (session == null) {
+      return;
+    }
+    try {
+      await _taskCompletionStorage.setTaskStatus(
+        day,
+        taskId,
+        isCompleted,
+        session.username,
+      );
+    } catch (_) {
+      // ignore storage errors silently
+    }
+
+    try {
+      await _taskApi.markTaskDone(token: session.token, taskId: taskId);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Unable to sync task status.'),
+            duration: Duration(milliseconds: 1400),
+          ),
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final monthLabel = _monthNames[_selectedDay.month];
+    final monthLabel = monthNames[_selectedDay.month];
     final todaysCompleted = _completedToday;
-    final todaysMedal = _medalForProgress(
+    final todaysMedal = medalForProgress(
       completed: todaysCompleted,
       total: _totalTasks,
     );
@@ -283,21 +405,20 @@ class _HomePageState extends State<HomePage> {
                   _Header(
                     monthLabel: monthLabel,
                     onProfileTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Profile coming soon'),
-                          duration: Duration(milliseconds: 900),
-                        ),
-                      );
+                      Navigator.of(context)
+                          .pushNamed(UserInfoPage.route)
+                          .then((_) => _loadProfileImage());
                     },
                     onSettingsTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Settings coming soon'),
-                          duration: Duration(milliseconds: 900),
-                        ),
+                      Navigator.of(context).pushNamed(SettingsPage.route);
+                    },
+                    onMonthTap: () {
+                      Navigator.of(context).pushNamed(
+                        MonthlyMedalsPage.route,
+                        arguments: dateOnly(_selectedDay),
                       );
                     },
+                    profileImage: _profileImage,
                   ),
                   const SizedBox(height: 28),
                   _CalendarStrip(
@@ -413,11 +534,15 @@ class _Header extends StatelessWidget {
     required this.monthLabel,
     required this.onSettingsTap,
     required this.onProfileTap,
+    required this.onMonthTap,
+    this.profileImage,
   });
 
   final String monthLabel;
   final VoidCallback onSettingsTap;
   final VoidCallback onProfileTap;
+  final VoidCallback onMonthTap;
+  final ImageProvider? profileImage;
 
   @override
   Widget build(BuildContext context) {
@@ -431,10 +556,21 @@ class _Header extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         _RoundedIconButton(
-          asset: 'assets/icons/profile_icon.png',
+          asset: profileImage == null ? 'assets/icons/profile_icon.png' : null,
+          image: profileImage,
           onTap: onProfileTap,
         ),
-        Text(monthLabel, style: titleStyle ?? const TextStyle(fontSize: 36)),
+        InkWell(
+          onTap: onMonthTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(
+              monthLabel,
+              style: titleStyle ?? const TextStyle(fontSize: 36),
+            ),
+          ),
+        ),
         _RoundedIconButton(
           asset: 'assets/icons/settings_icon.png',
           onTap: onSettingsTap,
@@ -445,14 +581,19 @@ class _Header extends StatelessWidget {
 }
 
 class _RoundedIconButton extends StatelessWidget {
-  const _RoundedIconButton({required this.asset, required this.onTap});
+  const _RoundedIconButton({
+    required this.onTap,
+    this.asset,
+    this.image,
+  }) : assert(asset != null || image != null);
 
-  final String asset;
+  final String? asset;
+  final ImageProvider? image;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isSvg = asset.toLowerCase().endsWith('.svg');
+    final isSvg = asset != null && asset!.toLowerCase().endsWith('.svg');
 
     return Material(
       color: Colors.transparent,
@@ -463,7 +604,7 @@ class _RoundedIconButton extends StatelessWidget {
           width: 56,
           height: 56,
           decoration: BoxDecoration(
-            color: const Color(0xFFD6D6D6),
+            color: image == null ? const Color(0xFFD6D6D6) : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: Colors.white.withValues(alpha: 0.6),
@@ -476,16 +617,29 @@ class _RoundedIconButton extends StatelessWidget {
                 offset: const Offset(0, 4),
               ),
             ],
+            image: image != null
+                ? DecorationImage(
+                    image: image!,
+                    fit: BoxFit.cover,
+                  )
+                : null,
           ),
           alignment: Alignment.center,
-          child: isSvg
-              ? SvgPicture.asset(
-                  asset,
-                  width: 32,
-                  height: 32,
-                  allowDrawingOutsideViewBox: true,
-                )
-              : Image.asset(asset, width: 32, height: 32, fit: BoxFit.contain),
+          child: image != null
+              ? null
+              : (isSvg
+                  ? SvgPicture.asset(
+                      asset!,
+                      width: 32,
+                      height: 32,
+                      allowDrawingOutsideViewBox: true,
+                    )
+                  : Image.asset(
+                      asset!,
+                      width: 32,
+                      height: 32,
+                      fit: BoxFit.contain,
+                    )),
         ),
       ),
     );
@@ -520,7 +674,7 @@ class _CalendarStrip extends StatelessWidget {
       children: [
         Row(
           children: [
-            for (final dayLabel in _weekdayShortLabels)
+            for (final dayLabel in weekdayShortLabels)
               Expanded(
                 child: Center(child: Text(dayLabel, style: labelStyle)),
               ),
@@ -535,9 +689,9 @@ class _CalendarStrip extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: _CalendarDayBadge(
                     date: date,
-                    medal: medals[_dateOnly(date)] ?? MedalType.none,
-                    isSelected: _dateOnly(date) == _dateOnly(selectedDay),
-                    isToday: _dateOnly(date) == _dateOnly(today),
+                    medal: medals[dateOnly(date)] ?? MedalType.none,
+                    isSelected: dateOnly(date) == dateOnly(selectedDay),
+                    isToday: dateOnly(date) == dateOnly(today),
                     onTap: onDaySelected,
                   ),
                 ),
@@ -581,7 +735,7 @@ class _CalendarDayBadge extends StatelessWidget {
         ? Colors.white
         : Colors.white.withValues(alpha: 0.2);
 
-    final starTint = _medalTintForType(medal);
+    final starTint = medalTintForType(medal);
 
     return GestureDetector(
       onTap: () => onTap(date),
@@ -599,7 +753,7 @@ class _CalendarDayBadge extends StatelessWidget {
                   : null,
             ),
             child: SvgPicture.asset(
-              _medalAssetForType(medal),
+              medalAssetForType(medal),
               width: 26,
               height: 26,
               colorFilter: starTint != null
@@ -633,7 +787,7 @@ class _DailyTasksCard extends StatelessWidget {
       color: Colors.black,
       letterSpacing: 1.2,
     );
-    final starTint = _medalTintForType(medalType);
+    final starTint = medalTintForType(medalType);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -798,7 +952,7 @@ class _CompletionBadge extends StatelessWidget {
               color: Color(0xFF424242),
             ),
             child: SvgPicture.asset(
-              _medalAssetForType(medalType),
+              medalAssetForType(medalType),
               width: 28,
               height: 28,
               colorFilter: starTint != null
@@ -1134,9 +1288,9 @@ class _AddHabitOverlayContent extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(
-              _weekdayShortLabels.length,
+              weekdayShortLabels.length,
               (index) => _DayChip(
-                label: _weekdayShortLabels[index],
+                label: weekdayShortLabels[index],
                 isActive: selectedDays.contains(index),
                 onTap: () => onDayToggle(index),
               ),
