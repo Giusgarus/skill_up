@@ -16,19 +16,18 @@ class AppTheme {
     final baseText = GoogleFonts.poppinsTextTheme();
 
     // Title style for AUTH pages (LOGIN / REGISTRATION)
-    final authTitle = GoogleFonts.bebasNeue(
+    final authTitle = GoogleFonts.fugazOne(
       fontSize: 40,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 1.5,
+      letterSpacing: 1.2,
       color: Colors.white,
-      height: 1.0,
+      height: 1.05,
     );
 
     // Label sopra ai campi
-    final fieldLabel = baseText.titleMedium?.copyWith(
-      fontWeight: FontWeight.w900,
+    final fieldLabel = GoogleFonts.fredoka(
       fontSize: 18,
       color: Colors.black.withValues(alpha: 0.9),
+      height: 1.1,
     );
 
     return ThemeData(

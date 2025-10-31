@@ -5,6 +5,7 @@ import '../../presentation/widgets/pill_text_field.dart';
 import '../../../../shared/widgets/field_label.dart';
 import '../../../../shared/widgets/round_arrow_button.dart';
 import '../../data/services/auth_api.dart';
+import '../../data/storage/auth_session_storage.dart';
 import '../../utils/password_validator.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 
@@ -22,9 +23,11 @@ class _RegisterPageState extends State<RegisterPage> {
   final _emailC = TextEditingController();
   final _pwdC = TextEditingController();
   final _authApi = AuthApi();
+  final _sessionStorage = AuthSessionStorage();
   bool _loading = false;
   bool _obscurePassword = true;
   PasswordValidationResult _passwordStatus = evaluatePassword('');
+  String? _usernameError;
 
   @override
   void initState() {
@@ -57,6 +60,7 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _submit() async {
+    setState(() => _usernameError = null);
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
 
@@ -87,12 +91,35 @@ class _RegisterPageState extends State<RegisterPage> {
       final failureMessage =
           result.errorMessage ?? 'Registration failed. Please retry.';
 
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(result.isSuccess ? successMessage : failureMessage),
-          backgroundColor: result.isSuccess ? null : Colors.redAccent,
-        ),
-      );
+      final isDuplicateUser =
+          !result.isSuccess &&
+          (result.errorMessage?.toLowerCase().contains('already') ?? false);
+
+      if (isDuplicateUser) {
+        setState(() => _usernameError = result.errorMessage);
+      }
+
+      if (result.isSuccess) {
+        if (result.session != null) {
+          try {
+            await _sessionStorage.saveSession(result.session!);
+          } catch (storageError, storageStackTrace) {
+            if (kDebugMode) {
+              debugPrint('Failed to persist session: $storageError');
+              debugPrint(storageStackTrace.toString());
+            }
+          }
+        }
+
+        messenger.showSnackBar(SnackBar(content: Text(successMessage)));
+      } else if (!isDuplicateUser) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(failureMessage),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
 
       if (result.isSuccess) {
         if (!mounted) return;
@@ -134,6 +161,20 @@ class _RegisterPageState extends State<RegisterPage> {
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? 'Username required' : null,
             ),
+            if (_usernameError != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6, left: 18),
+                  child: Text(
+                    _usernameError!,
+                    style: TextStyle(
+                      color: Colors.redAccent.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 14),
             const FieldLabel('Put your e-mail:'),
             PillTextField(

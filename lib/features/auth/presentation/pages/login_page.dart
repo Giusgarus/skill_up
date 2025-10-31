@@ -7,6 +7,7 @@ import '../../../../shared/widgets/round_arrow_button.dart';
 import '../../data/services/auth_api.dart';
 import '../../data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
+import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -48,9 +49,13 @@ class _LoginPageState extends State<LoginPage> {
         final session = result.session!;
         try {
           await _sessionStorage.saveSession(session);
+          await UserProfileSyncService.instance.syncAll(
+            token: session.token,
+            username: session.username,
+          );
         } catch (storageError, storageStackTrace) {
           if (kDebugMode) {
-            debugPrint('Failed to persist session: $storageError');
+            debugPrint('Failed to finalize login data sync: $storageError');
             debugPrint(storageStackTrace.toString());
           }
         }
