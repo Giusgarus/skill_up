@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -66,6 +65,8 @@ class _HomePageState extends State<HomePage> {
   late final DateTime _today;
   late final List<DateTime> _currentWeek;
   late Map<DateTime, int?> _completedTasksByDay;
+  late final List<DailyTask> _taskCatalog;
+  final Map<DateTime, Map<String, bool>> _taskStatusesByDay = {};
   late List<DailyTask> _tasks;
   late DateTime _selectedDay;
   bool _isAddHabitOpen = false;
@@ -78,7 +79,8 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _medalRepository = MedalHistoryRepository.instance;
     _today = dateOnly(DateTime.now());
-    _tasks = _seedTasks();
+    _taskCatalog = _seedTasks();
+    _tasks = _buildTasksForDay(_today);
     _currentWeek = _generateWeekFor(_today);
     _completedTasksByDay = _seedMonthlyCompletedTasks();
     _ensureWeekCoverage();
@@ -154,7 +156,8 @@ class _HomePageState extends State<HomePage> {
         return;
       }
       setState(() {
-        _tasks = _tasks.map((task) => task.copyWith(isCompleted: false)).toList();
+        _taskStatusesByDay.clear();
+        _tasks = _buildTasksForDay(_selectedDay);
         _completedTasksByDay = _completedTasksByDay.map((date, value) {
           return MapEntry(date, value == null ? null : 0);
         });
@@ -170,19 +173,15 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       stored.forEach((date, tasks) {
         final normalized = dateOnly(date);
-        final completedCount =
-            tasks.values.where((value) => value).length;
-        _completedTasksByDay[normalized] = completedCount;
-        if (normalized == _today) {
-          _tasks = _tasks
-              .map(
-                (task) => task.copyWith(
-                  isCompleted: tasks[task.id] ?? false,
-                ),
-              )
-              .toList();
+        final taskMap = Map<String, bool>.from(tasks);
+        _taskStatusesByDay[normalized] = taskMap;
+        if (!normalized.isAfter(_today)) {
+          final completedCount =
+              taskMap.values.where((value) => value).length;
+          _completedTasksByDay[normalized] = completedCount;
         }
       });
+      _tasks = _buildTasksForDay(_selectedDay);
       _seedMedalsFromCompletions();
     });
   }
@@ -254,14 +253,27 @@ class _HomePageState extends State<HomePage> {
     ];
   }
 
-  int get _totalTasks => _tasks.length;
+  List<DailyTask> _buildTasksForDay(DateTime day) {
+    final normalized = dateOnly(day);
+    final statuses = _taskStatusesByDay[normalized];
+    return _taskCatalog
+        .map(
+          (task) => task.copyWith(
+            isCompleted: statuses?[task.id] ?? false,
+          ),
+        )
+        .toList();
+  }
+
+  int get _totalTasks => _taskCatalog.length;
 
   int get _completedToday => _tasks.where((task) => task.isCompleted).length;
 
   int _completedForDay(DateTime day) {
     final normalized = dateOnly(day);
-    if (normalized == _today) {
-      return _completedToday;
+    final statuses = _taskStatusesByDay[normalized];
+    if (statuses != null) {
+      return statuses.values.where((value) => value).length;
     }
     final stored = _completedTasksByDay[normalized];
     return stored ?? 0;
@@ -308,7 +320,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _toggleTask(String id) {
-    if (dateOnly(_selectedDay) != _today) {
+    final normalizedDay = dateOnly(_selectedDay);
+    if (normalizedDay != _today) {
       return;
     }
 
@@ -323,24 +336,34 @@ class _HomePageState extends State<HomePage> {
             return task;
           })
           .toList();
-      final normalizedDay = dateOnly(_selectedDay);
-      _completedTasksByDay[normalizedDay] = _completedToday;
+      final updatedStatuses = Map<String, bool>.from(
+        _taskStatusesByDay[normalizedDay] ?? <String, bool>{},
+      );
+      if (toggledTask != null) {
+        updatedStatuses[id] = toggledTask!.isCompleted;
+      }
+      _taskStatusesByDay[normalizedDay] = updatedStatuses;
+
+      final completedCount =
+          updatedStatuses.values.where((value) => value).length;
+      _completedTasksByDay[normalizedDay] = completedCount;
       final medal = medalForProgress(
-        completed: _completedToday,
+        completed: completedCount,
         total: _totalTasks,
       );
       _medalRepository.setMedalForDay(normalizedDay, medal);
       _seedMedalsFromCompletions();
     });
 
-    final normalizedDay = dateOnly(_selectedDay);
     final newStatus = toggledTask?.isCompleted ?? false;
     unawaited(_persistTaskStatus(normalizedDay, id, newStatus));
   }
 
   void _selectDay(DateTime date) {
+    final normalized = dateOnly(date);
     setState(() {
-      _selectedDay = dateOnly(date);
+      _selectedDay = normalized;
+      _tasks = _buildTasksForDay(normalized);
     });
   }
 
