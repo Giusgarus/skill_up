@@ -15,8 +15,9 @@ class AuthApi {
 
   static const _defaultBaseUrl = 'http://127.0.0.1:8000';
 
-  Uri get _registerUri => Uri.parse(baseUrl).resolve('/register');
-  Uri get _loginUri => Uri.parse(baseUrl).resolve('/login');
+  Uri get _registerUri => Uri.parse(baseUrl).resolve('/auth/register');
+  Uri get _loginUri => Uri.parse(baseUrl).resolve('/auth/login');
+  Uri get _checkBearerUri => Uri.parse(baseUrl).resolve('/auth/check_bearer');
 
   Future<AuthResult> register({
     required String username,
@@ -83,6 +84,67 @@ class AuthApi {
         'Unexpected error while logging in.',
         stackTrace: stackTrace,
         error: error,
+      );
+    }
+  }
+
+  Future<BearerCheckResult> validateToken({
+    required String token,
+    String? usernameHint,
+  }) async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    final payload = <String, dynamic>{
+      'token': token,
+      if (usernameHint != null && usernameHint.trim().isNotEmpty)
+        'username': usernameHint.trim(),
+    };
+    try {
+      final response = await _client.post(
+        _checkBearerUri,
+        headers: headers,
+        body: jsonEncode(payload),
+      );
+      if (response.statusCode == 200) {
+        Map<String, dynamic>? body;
+        if (response.body.isNotEmpty) {
+          try {
+            body = jsonDecode(response.body) as Map<String, dynamic>;
+          } catch (_) {
+            return const BearerCheckResult.invalid(
+              'Malformed server response.',
+            );
+          }
+        }
+        final isValid = body?['valid'] == true;
+        final username = body?['username'] as String?;
+        if (isValid && username != null && username.trim().isNotEmpty) {
+          return BearerCheckResult.valid(username.trim());
+        }
+        if (isValid) {
+          return const BearerCheckResult.invalid(
+            'Token validated but missing username.',
+          );
+        }
+        return const BearerCheckResult.invalid('Token rejected by server.');
+      }
+      if (response.statusCode == 401) {
+        return const BearerCheckResult.invalid('Invalid session token.');
+      }
+      return BearerCheckResult.invalid(
+        'Unexpected status ${response.statusCode}.',
+      );
+    } on SocketException catch (_) {
+      return const BearerCheckResult.error('Unable to reach the server.');
+    } on HttpException catch (_) {
+      return const BearerCheckResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return BearerCheckResult.error(
+        'Unexpected error while validating token.',
+        error: error,
+        stackTrace: stackTrace,
       );
     }
   }
@@ -208,4 +270,40 @@ class AuthSession {
   final String token;
   final String username;
   final String? userId;
+}
+
+class BearerCheckResult {
+  const BearerCheckResult._({
+    required this.isValid,
+    this.username,
+    this.errorMessage,
+    this.error,
+    this.stackTrace,
+    this.isConnectivityIssue = false,
+  });
+
+  const BearerCheckResult.valid(String username)
+    : this._(isValid: true, username: username);
+
+  const BearerCheckResult.invalid([String? message])
+    : this._(isValid: false, errorMessage: message);
+
+  const BearerCheckResult.error(
+    String message, {
+    Object? error,
+    StackTrace? stackTrace,
+  }) : this._(
+         isValid: false,
+         errorMessage: message,
+         error: error,
+         stackTrace: stackTrace,
+         isConnectivityIssue: true,
+       );
+
+  final bool isValid;
+  final String? username;
+  final String? errorMessage;
+  final Object? error;
+  final StackTrace? stackTrace;
+  final bool isConnectivityIssue;
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'shared/theme/app_theme.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/auth/presentation/pages/register_page.dart';
+import 'features/auth/presentation/pages/startup_page.dart';
 import 'features/home/presentation/pages/monthly_medals_page.dart';
 import 'features/home/presentation/pages/home_page.dart';
 import 'features/home/presentation/pages/statistics_page.dart';
@@ -18,8 +19,9 @@ class SkillUpApp extends StatelessWidget {
       title: 'SkillUp',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(), // central place for typography/colors
-      initialRoute: LoginPage.route,
+      initialRoute: StartupPage.route,
       routes: {
+        StartupPage.route: (_) => const StartupPage(),
         LoginPage.route: (_) => const LoginPage(),
         RegisterPage.route: (_) => const RegisterPage(),
         HomePage.route: (_) => const HomePage(),
@@ -27,8 +29,7 @@ class SkillUpApp extends StatelessWidget {
         SettingsPage.route: (_) => const SettingsPage(),
         MonthlyMedalsPage.route: (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
-          final initial =
-              args is DateTime ? args : DateTime.now();
+          final initial = args is DateTime ? args : DateTime.now();
           return MonthlyMedalsPage(initialMonth: initial);
         },
         StatisticsPage.route: (context) {

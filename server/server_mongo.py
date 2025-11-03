@@ -7,8 +7,8 @@ import re
 import json
 import threading
 import datetime
-from typing import Dict, Optional
-from fastapi import FastAPI, Header, HTTPException
+from typing import Any, Dict, Optional
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pymongo import MongoClient, errors as pymongo_errors  # type: ignore
 from datetime import timezone as _tz
@@ -117,8 +117,11 @@ class TaskDone(BaseModel):
     token: str
     task_idx: str
 
+class CheckBearer(BaseModel):
+    username: Optional[str] = None
+    token: str
 
-@app.post("/register", status_code = 201)
+@app.post("/auth/register", status_code = 201)
 def register_user(input: RegisterInput) -> Dict[str, str]:
     username = input.username.strip()
     password = input.password
@@ -140,7 +143,7 @@ def register_user(input: RegisterInput) -> Dict[str, str]:
     except:
         return {}
 
-@app.post("/login", status_code = 201)
+@app.post("/auth/login", status_code = 201)
 def login_user(creds: LoginInput) -> Dict[str, str]:
     username = creds.username.strip()
     if not username or not creds.password:
@@ -154,6 +157,23 @@ def login_user(creds: LoginInput) -> Dict[str, str]:
         return {"token": token, "username": username}
     except:
         return {}
+
+@app.post("/auth/check_bearer")
+def validate_bearer(payload: CheckBearer) -> Dict[str, Any]:
+    token = payload.token.strip()
+    username_hint = (payload.username or "").strip()
+    if not token:
+        raise HTTPException(status_code = 400, detail = "Token required")
+    ok, user_id = verify_session(token)
+    if not ok or not user_id:
+        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+    user = user_collection.find_one({"user_id": user_id}, {"username": 1})
+    if not user:
+        raise HTTPException(status_code = 404, detail = "User not found")
+    resolved_username = user.get("username", "").strip()
+    if username_hint and username_hint != resolved_username:
+        raise HTTPException(status_code = 401, detail = "Mismatch user id, username")
+    return {"valid": True, "username": resolved_username}
 
 @app.post("/task_done")
 def task_done(input: TaskDone):
