@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 import mongomock
 
 import server_mongo as server
-from create_db import run as init_db
+from server.db.database import create as init_db
 
 @pytest.fixture(scope="module")
 def client():
