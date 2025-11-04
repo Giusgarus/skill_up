@@ -7,16 +7,6 @@ from datetime import timezone as _tz
 
 UTC = _tz.utc
 MIN_LEN_PASSWORD = 8
-LEADERBOARD_K = 10
-
-def leaderboard_upsert_and_trim(*, user_id: str, score: int, K: int = LEADERBOARD_K) -> None:
-    leaderboard_collection.update_one({"user_id": user_id}, {"$set": {"score": int(score)}}, upsert = True)
-    total = leaderboard_collection.estimated_document_count()
-    if total <= K:
-        return
-    keep_docs = list(leaderboard_collection.find({}, {"user_id": 1}).sort([("score", -1), ("user_id", 1)]).limit(K))
-    keep_ids = [d["user_id"] for d in keep_docs]
-    leaderboard_collection.delete_many({"user_id": {"$nin": keep_ids}})
 
 def hash_password(password: str) -> str:
     if not check_register_password(password):

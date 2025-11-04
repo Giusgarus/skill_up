@@ -6,30 +6,27 @@ from pymongo.collection import Collection
 
 _client: Optional[MongoClient] = None
 _db: Optional[Database] = None
-MONGO_DB = None
-MONGO_URI = None
 
 def connect(reset: bool = False) -> None:
-    global _client, _db, MONGO_DB, MONGO_URI, USERS_COLL, SESSIONS_COLL, USER_DATA_COLL, LEADERBOARD_COLL
+    global _client, _db
     # Case of reset of the DB connection
     if reset:
         close()
-    if not reset and _client is not None and _db is not None \
-        and None not in [MONGO_DB, MONGO_URI, USERS_COLL, SESSIONS_COLL, USER_DATA_COLL, LEADERBOARD_COLL]:
+    if not reset and _client is not None and _db is not None:
         return
     # Initializations of global variables
-    MONGO_DB = os.getenv("MONGO_DB", "skillup")
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+    mongo_db = os.getenv("MONGO_DB", "skillup")
+    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     # Create a new client and set the database connection
     if _client is None:
         try:
-            _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
+            _client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
             _client.admin.command("ping")
         except Exception:
             _client = _db = None
             return
     if _db is None:
-        _db = _client[MONGO_DB]
+        _db = _client[mongo_db]
 
 def get_client() -> Optional[MongoClient]:
     return _client
