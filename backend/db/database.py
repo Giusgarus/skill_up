@@ -1,7 +1,14 @@
 from pymongo import MongoClient, PyMongoError
 from pymongo.database import Database
+import db.client as client
 
-def insert(db: Database, record: dict, table_name: str) -> None:
+def connect_to_db() -> Database:
+    if not client.ping():
+        client.connect()
+    return client.get_db()
+
+def insert(table_name: str, record: dict) -> dict:
+    db = connect_to_db()
     try:
         result = db[table_name].insert_one(record)
         return {
@@ -14,14 +21,16 @@ def insert(db: Database, record: dict, table_name: str) -> None:
             "error": str(e)
         }
     
-def insert_many(db: Database, records: list[dict], table_name: str) -> None:
+def insert_many(table_name: str, records: list[dict]) -> list[dict]:
+    db = connect_to_db()
     results = []
     for record in records:
         result = insert(db, record, table_name)
         results.append(result)
     return results
 
-def update(db: Database, record: dict, table_name: str) -> None:
+def update(table_name: str, record: dict) -> dict:
+    db = connect_to_db()
     if "_id" not in record.keys():
         return False
     payload = {k: v for k, v in record.items() if k != "_id"}
@@ -37,14 +46,16 @@ def update(db: Database, record: dict, table_name: str) -> None:
             "error": str(e)
         }
 
-def update_many(db: Database, records: list[dict], table_name: str) -> None:
+def update_many(table_name: str, records: list[dict]) -> list[dict]:
+    db = connect_to_db()
     results = []
     for record in records:
         result = update(db, record, table_name)
         results.append(result)
     return results
 
-def query(db: Database, table_name: str, filters: dict = None, projection: dict = None) -> list[dict]:
+def query(table_name: str, filters: dict = None, projection: dict = None) -> dict:
+    db = connect_to_db()
     try:
         cursor = db[table_name].find(filters or {}, projection=projection) # automatically handles the None cases
         return {
