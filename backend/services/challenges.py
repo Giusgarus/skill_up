@@ -13,8 +13,15 @@ def get_plan(user_id: str = Query(...), date: str = Query(...), db = Depends(db.
 @router.post("/task_done", status_code=201)
 def task_done(payload: dict) -> dict:
     token = payload["token"]
-    day = compute() # datetime. bla bla
+    now_timestamp = session.get_now_timestamp()
     task_id = payload["task_id"]
+    user_id = payload["user_id"]
+    cursor = db.find(
+        table_name="tasks",
+        filters={"task_id": task_id, "user_id": user_id}
+    )
+    record = cursor[0]
+    # Modifica il task e reinseriscilo nel DB (fai una update sul campo task_done o quello che e')
     return {}
 
 @router.post("/set", status_code=201)
@@ -31,7 +38,7 @@ def get_llm_response(payload: dict) -> dict:
     valid_token, user_id = session.verify_session(token)
     if not valid_token:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    results = db.query(
+    results = db.find(
         table_name="user_data",
         filters={"user_id": user_id}
     )

@@ -16,7 +16,7 @@ def register(payload: dict) -> dict:
         raise HTTPException(status_code = 400, detail = "Username and password are required")
     if not security.check_register_password(payload["password"]):
         raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
-    results = db.query(
+    results = db.find(
         table_name="users",
         filters={"username": payload["username"]}
     )
@@ -43,7 +43,7 @@ def login(payload: dict) -> dict:
     payload["username"] = payload["username"].strip()
     if not payload["username"] or not payload["password"]:
         raise HTTPException(status_code = 400, detail = "Username and password are required")
-    results = db.query(
+    results = db.find(
         table_name="users",
         filters={"username": payload["username"]}
     )
@@ -67,7 +67,7 @@ def validate_bearer(payload: dict) -> dict:
     ok, user_id = session.verify_session(token)
     if not ok or not user_id:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    results = db.query(
+    results = db.find(
         table_name="users",
         record={"user_id": user_id},
         projection={"username": 1}
@@ -83,7 +83,7 @@ def validate_bearer(payload: dict) -> dict:
 
 @router.get("/{user_id}")
 def get_user(user_id: str):
-    results = db.query(
+    results = db.find(
         table_name="users",
         filters={"id": user_id}
     )

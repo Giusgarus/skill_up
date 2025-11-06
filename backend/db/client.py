@@ -7,6 +7,8 @@ from pymongo.collection import Collection
 _client: Optional[MongoClient] = None
 _db: Optional[Database] = None
 
+tables = ["users", "tasks", "sessions", "leaderboard"]
+
 def connect(reset: bool = False) -> None:
     global _client, _db
     # Case of reset of the DB connection
@@ -37,7 +39,7 @@ def get_db() -> Optional[Database]:
 def get_collection(coll_name: str) -> Optional[Collection]:
     if _db is None:
         return None
-    if coll_name not in ["users", "sessions", "user_data", "leaderboard"]:
+    if coll_name not in tables:
         return None
     return _db[coll_name]
 

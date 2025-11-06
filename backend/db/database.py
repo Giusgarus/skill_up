@@ -24,21 +24,11 @@ def connect_to_db() -> Database:
 def insert(table_name: str, record: dict) -> dict:
     db = connect_to_db()
     if not check_primary_keys(table_name, record):
-        return {
-            "_id": None,
-            "error": f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field"
-        }
+        raise RuntimeError(f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
     try:
-        result = db[table_name].insert_one(record)
-        return {
-            "_id": result.inserted_id,
-            "error": None
-        }
+        return db[table_name].insert_one(record)
     except PyMongoError as e:
-        return {
-            "_id": "",
-            "error": str(e)
-        }
+        raise RuntimeError(e)
     
 def insert_many(table_name: str, records: list[dict]) -> list[dict]:
     results = []
@@ -50,10 +40,7 @@ def insert_many(table_name: str, records: list[dict]) -> list[dict]:
 def update(table_name: str, record: dict) -> dict:
     db = connect_to_db()
     if not check_primary_keys(table_name, record):
-        return {
-            "_id": None,
-            "error": f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field"
-        }
+        raise RuntimeError(f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
     primary_keys_dict = {}
     payload = {}
     for k, v in record.items():
@@ -62,16 +49,9 @@ def update(table_name: str, record: dict) -> dict:
         else:
             payload[k] = v
     try:
-        result = db[table_name].update_one(primary_keys_dict, {"$set": payload})
-        return {
-            "_id": result.upserted_id,
-            "error": None
-        }
+        return db[table_name].update_one(primary_keys_dict, {"$set": payload})
     except PyMongoError as e:
-        return {
-            "_id": "",
-            "error": str(e)
-        }
+        raise RuntimeError(e)
 
 def update_many(table_name: str, records: list[dict]) -> list[dict]:
     results = []
@@ -80,19 +60,13 @@ def update_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-def query(table_name: str, filters: dict = None, projection: dict = None) -> dict:
+def find(table_name: str, filters: dict = None, projection: dict = None) -> list:
     db = connect_to_db()
     try:
-        cursor = db[table_name].find(filters or {}, projection=projection) # automatically handles the None cases
-        return {
-            "data": list(cursor),
-            "error": None
-        }
+        cursor = db[table_name].find_one(filters or {}, projection=projection) # automatically handles the None cases
+        return list(cursor)
     except PyMongoError as e:
-        return {
-            "data": [],
-            "error": str(e)
-        }
+        raise RuntimeError(e)
 
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
