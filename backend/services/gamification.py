@@ -1,7 +1,11 @@
+from fastapi import APIRouter
 import backend.db.client as client
 
 LEADERBOARD_K = 10
 
+router = APIRouter(prefix="/services/gamification", tags=["gamification"])
+
+@router.post("/leaderboard", status_code=201)
 def leaderboard_update(user_id: str, score: int, K: int = LEADERBOARD_K) -> None:
     '''
     Update the leaderborad with the K users with the higher score.

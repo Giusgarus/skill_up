@@ -4,17 +4,26 @@ import backend.utils.session as session
 
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
-@router.get("/plan")
+@router.get("/plan", status_code=201)
 def get_plan(user_id: str = Query(...), date: str = Query(...), db = Depends(db.connect_to_db)):
     if db is None:
         raise HTTPException(status_code=503, detail="DB unavailable")
     pass
 
-@router.post("/task_done", tags=["task_done"])
+@router.post("/task_done", status_code=201)
 def task_done(payload: dict) -> dict:
+    token = payload["token"]
+    day = compute() # datetime. bla bla
+    task_id = payload["task_id"]
     return {}
 
-@router.post("/prompt", tags=["prompt"])
+@router.post("/set", status_code=201)
+def update_user(payload: dict):
+    attribute = payload["attribute"]
+    record = payload["record"]
+    # fare update
+
+@router.get("/prompt", status_code=201)
 def get_llm_response(payload: dict) -> dict:
     username = payload.username
     token = payload.token

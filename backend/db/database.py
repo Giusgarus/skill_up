@@ -13,7 +13,7 @@ def insert(table_name: str, record: dict) -> dict:
         result = db[table_name].insert_one(record)
         return {
             "_id": result.inserted_id,
-            "error": ""
+            "error": None
         }
     except PyMongoError as e:
         return {
@@ -38,7 +38,7 @@ def update(table_name: str, record: dict) -> dict:
         result = db[table_name].update_one({"_id": record["_id"]}, {"$set": payload})
         return {
             "_id": result.upserted_id,
-            "error": ""
+            "error": None
         }
     except PyMongoError as e:
         return {
@@ -60,7 +60,7 @@ def query(table_name: str, filters: dict = None, projection: dict = None) -> dic
         cursor = db[table_name].find(filters or {}, projection=projection) # automatically handles the None cases
         return {
             "data": list(cursor),
-            "error": ""
+            "error": None
         }
     except PyMongoError as e:
         return {

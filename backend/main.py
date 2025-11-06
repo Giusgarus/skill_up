@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from backend.db.client import get_db, close_client
+from backend.db.client import get_db, close
 from backend.db.indexes import create_indexes
 from backend.services.authentication import router as authentication_router
 from backend.services.challenges import router as challenges_router
@@ -14,7 +14,7 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    await close_client()
+    await close()
 
 
 app.include_router(authentication_router)

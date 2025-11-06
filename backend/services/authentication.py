@@ -11,13 +11,16 @@ UTC = _tz.utc
 router = APIRouter(prefix="/services/auth", tags=["auth"])
 
 @router.post("/register", status_code=201)
-async def register(payload: dict) -> dict:
+def register(payload: dict) -> dict:
     if not payload["username"] or not payload["password"]:
         raise HTTPException(status_code = 400, detail = "Username and password are required")
     if not security.check_register_password(payload["password"]):
         raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
-    results = db.query(table_name="users", filters={"username": payload["username"]})
-    if results["data"]:
+    results = db.query(
+        table_name="users",
+        filters={"username": payload["username"]}
+    )
+    if results["data"] and results["error"] is None:
         raise HTTPException(status_code = 401, detail = "User already exists")
     user_id = str(uuid.uuid4())
     password_hash = security.hash_password(payload["password"])
@@ -35,7 +38,7 @@ async def register(payload: dict) -> dict:
     except:
         return {}
 
-@router.post("/login", tags=["login"])
+@router.post("/login", status_code=201)
 def login(payload: dict) -> dict:
     payload["username"] = payload["username"].strip()
     if not payload["username"] or not payload["password"]:
@@ -55,7 +58,7 @@ def login(payload: dict) -> dict:
     except:
         return {}
 
-@router.post("/check_bearer", tags=["check_bearer"])
+@router.post("/check_bearer", status_code=201)
 def validate_bearer(payload: dict) -> dict:
     token = payload.token.strip()
     username_hint = (payload["username"] or "").strip()
