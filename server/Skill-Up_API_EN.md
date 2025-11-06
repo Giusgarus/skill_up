@@ -46,7 +46,6 @@ sessions_collection.create_index(“expires_at”, expireAfterSeconds = 24 HOURS
   “user_id”: “<uuid-v4>”,
   “info”: “<dictionary>”,
   “score”: “<int>”,
-  "n_tasks_done": "<int>",
   “tasks”: {
     “YYYY-MM-DD”: [
       {
