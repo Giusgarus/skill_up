@@ -2,6 +2,20 @@ from pymongo import MongoClient, PyMongoError
 from pymongo.database import Database
 import db.client as client
 
+table_primary_keys_dict = {
+    "users": ["user_id"],
+    "tasks": ["task_id", "user_id"],
+    "sessions": ["token"],
+    "leaderboard": ["user_id"],
+}
+
+def check_primary_keys(table_name: str, record: dict):
+    primary_keys = table_primary_keys_dict[table_name]
+    for k in primary_keys:
+        if k not in record.keys():
+            return False
+    return True
+
 def connect_to_db() -> Database:
     if not client.ping():
         client.connect()
@@ -9,6 +23,11 @@ def connect_to_db() -> Database:
 
 def insert(table_name: str, record: dict) -> dict:
     db = connect_to_db()
+    if not check_primary_keys(table_name, record):
+        return {
+            "_id": None,
+            "error": f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field"
+        }
     try:
         result = db[table_name].insert_one(record)
         return {
@@ -22,20 +41,28 @@ def insert(table_name: str, record: dict) -> dict:
         }
     
 def insert_many(table_name: str, records: list[dict]) -> list[dict]:
-    db = connect_to_db()
     results = []
     for record in records:
-        result = insert(db, record, table_name)
+        result = insert(table_name, record)
         results.append(result)
     return results
 
 def update(table_name: str, record: dict) -> dict:
     db = connect_to_db()
-    if "_id" not in record.keys():
-        return False
-    payload = {k: v for k, v in record.items() if k != "_id"}
+    if not check_primary_keys(table_name, record):
+        return {
+            "_id": None,
+            "error": f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field"
+        }
+    primary_keys_dict = {}
+    payload = {}
+    for k, v in record.items():
+        if k in primary_keys_dict[table_name]:
+            primary_keys_dict[k] = v
+        else:
+            payload[k] = v
     try:
-        result = db[table_name].update_one({"_id": record["_id"]}, {"$set": payload})
+        result = db[table_name].update_one(primary_keys_dict, {"$set": payload})
         return {
             "_id": result.upserted_id,
             "error": None
@@ -47,10 +74,9 @@ def update(table_name: str, record: dict) -> dict:
         }
 
 def update_many(table_name: str, records: list[dict]) -> list[dict]:
-    db = connect_to_db()
     results = []
     for record in records:
-        result = update(db, record, table_name)
+        result = update(table_name, record)
         results.append(result)
     return results
 
