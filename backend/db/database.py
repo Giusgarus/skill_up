@@ -60,11 +60,20 @@ def update_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-def find(table_name: str, filters: dict = None, projection: dict = None) -> list:
+def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> list:
     db = connect_to_db()
     try:
-        cursor = db[table_name].find_one(filters or {}, projection=projection) # automatically handles the None cases
+        cursor = db[table_name].find_one(filter = filters, projection = projection) # automatically handles the None cases
         return list(cursor)
+    except PyMongoError as e:
+        raise RuntimeError(e)
+
+
+def find_one(table_name: str, filters: dict = {}, projection: dict = None) -> list:
+    db = connect_to_db()
+    try:
+        cursor = db[table_name].find_one(filter = filters, projection = projection) # automatically handles the None cases
+        return cursor
     except PyMongoError as e:
         raise RuntimeError(e)
 
@@ -86,6 +95,6 @@ def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     user_data.create_index("user_id", unique=True)
     user_data.create_index([("score", -1), ("username", 1)])
     leaderboard = db["leaderboard"]
-    leaderboard.create_index([("user_id", 1)], unique=True)
-    leaderboard.create_index([("score", -1), ("user_id", 1)])
+    leaderboard.create_index([("username", 1)], unique=True)
+    leaderboard.create_index([("score", -1), ("username", 1)])
     return db

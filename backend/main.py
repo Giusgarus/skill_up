@@ -5,7 +5,7 @@ from backend.services.authentication import router as authentication_router
 from backend.services.challenges import router as challenges_router
 from backend.services.gamification import router as gamification_router
 
-app = FastAPI(title="SkillUp")
+app = FastAPI(title = "SkillUp")
 
 @app.on_event("startup")
 async def on_startup():
