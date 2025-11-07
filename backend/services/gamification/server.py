@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import backend.db.client as client
+import backend.db.database as db
 import backend.utils.session as session
 router = APIRouter(prefix="/services/gamification", tags=["gamification"])
 
@@ -12,9 +12,6 @@ def leaderboard_get(payload: GetLeaderboard) -> dict:
     ok, _ = session.verify_session(payload.token)
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    leaderboard_coll = client.get_collection("leaderboard")
-    if leaderboard_coll is None:
-        raise HTTPException(status_code = 503, detail = "DB unavailable")
-    leaderboard_doc = leaderboard_coll.find_one({"_id": "topK"}, projection = {"_id": False, "items": True})
+    leaderboard_doc = db.find_one(table_name = "leaderboard", filters = {"_id": "topK"}, projection = {"_id": False, "items": True})
     items = (leaderboard_doc or {}).get("items", [])
     return {"status": True, "leaderboard": items}

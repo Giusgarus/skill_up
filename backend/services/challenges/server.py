@@ -36,12 +36,6 @@ class GeneratePlan(BaseModel):
 
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
-@router.get("/plan", status_code=201)
-def get_plan(user_id: str = Query(...), date: str = Query(...), db = Depends(db.connect_to_db)):
-    if db is None:
-        raise HTTPException(status_code=503, detail="DB unavailable")
-    pass
-
 @router.post("/task_done", status_code = 201)
 def task_done(payload: SetTaskDone) -> dict:
     ok, user_id = session.verify_session(payload.token)

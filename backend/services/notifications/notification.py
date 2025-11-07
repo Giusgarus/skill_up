@@ -2,17 +2,15 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import firebase_admin
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from firebase_admin import credentials, messaging
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
-
-UTC = timezone.utc
+import backend.utils.timing as timing
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("notifications")
@@ -174,7 +172,7 @@ def _scheduler_loop() -> None:
         try:
             summary = send_broadcast_notification()
             with last_run_lock:
-                last_run_summary["last_run"] = datetime.now(UTC).isoformat()
+                last_run_summary["last_run"] = timing.now_iso()
                 last_run_summary["result"] = summary
         except Exception:  # noqa: BLE001
             logger.exception("Scheduled notification run failed.")
@@ -192,80 +190,3 @@ def _start_scheduler_once() -> None:
     )
     scheduler_thread.start()
     scheduler_started = True
-
-
-app = FastAPI(
-    title="SkillUp Notification Server",
-    version="1.0.0",
-    description="Dispatches scheduled Firebase Cloud Messaging broadcasts.",
-)
-
-
-@app.on_event("startup")
-def _startup_event() -> None:
-    logger.info("Starting notification server.")
-    _start_scheduler_once()
-
-
-@app.on_event("shutdown")
-def _shutdown_event() -> None:
-    stop_event.set()
-    logger.info("Notification server shutdown requested.")
-
-
-@app.post("/notifications/device", status_code=200)
-def register_device(payload: DeviceRegistration) -> Dict[str, str]:
-    user_id, username = _verify_session(payload.session_token)
-
-    canonical_username = payload.username.strip() or username
-    if canonical_username != username:
-        logger.info(
-            "Client username mismatch: client=%s database=%s. Using database value.",
-            canonical_username,
-            username,
-        )
-
-    now = datetime.now(UTC)
-    device_tokens_collection.update_one(
-        {"device_token": payload.device_token},
-        {
-            "$set": {
-                "device_token": payload.device_token,
-                "user_id": user_id,
-                "username": username,
-                "platform": payload.platform,
-                "updated_at": now,
-            },
-        },
-        upsert=True,
-    )
-    logger.info(
-        "Registered device token for user %s (%s).",
-        username,
-        payload.platform,
-    )
-    return {"status": "registered"}
-
-
-@app.post("/notifications/send-now", status_code=200)
-def send_now(payload: ManualNotification) -> Dict[str, int]:
-    summary = send_broadcast_notification(body=payload.body, title=payload.title)
-    with last_run_lock:
-        last_run_summary["last_run"] = datetime.now(UTC).isoformat()
-        last_run_summary["result"] = summary
-    return summary
-
-
-@app.get("/notifications/status")
-def scheduler_status() -> Dict[str, object]:
-    token_count = device_tokens_collection.estimated_document_count()
-    with last_run_lock:
-        last_run = last_run_summary["last_run"]
-        result = last_run_summary["result"]
-    return {
-        "interval_seconds": INTERVAL_SECONDS,
-        "last_run": last_run,
-        "last_result": result,
-        "registered_tokens": token_count,
-        "scheduler_running": scheduler_started and not stop_event.is_set(),
-    }

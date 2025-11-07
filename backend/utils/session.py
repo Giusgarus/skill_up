@@ -5,10 +5,7 @@ from pymongo import errors as pymongo_errors  # type: ignore
 from datetime import timezone as _tz
 import backend.db.database as db
 import backend.utils.security as security
-UTC = _tz.utc
-
-def get_now_timestamp():
-    return datetime.datetime.now(UTC)
+import backend.utils.timing as timing
 
 def generate_token() -> str:
     return secrets.token_urlsafe(48) # 256-bit+ token, URL-safe
@@ -24,7 +21,7 @@ def generate_session(user_id: str) -> str:
     for _ in range(6):
         token = security.generate_token()
         try:
-            db.insert(table_name = "sessions", record = {"token": token, "user_id": user_id, "created_at": get_now_timestamp()})
+            db.insert(table_name = "sessions", record = {"token": token, "user_id": user_id, "created_at": timing.now()})
             return token
         except pymongo_errors.DuplicateKeyError:
             token = None
