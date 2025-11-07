@@ -1,8 +1,6 @@
 import secrets
-import datetime
 from fastapi import HTTPException
 from pymongo import errors as pymongo_errors  # type: ignore
-from datetime import timezone as _tz
 import backend.db.database as db
 import backend.utils.security as security
 import backend.utils.timing as timing

@@ -78,10 +78,7 @@ def update_user(payload: UpdateUserBody):
         raise HTTPException(status_code = 400, detail = "Invalid or missing token")
     if payload.attribute not in ALLOWED_DATA_FIELDS:
         raise HTTPException(status_code = 401, detail = "Unsupported attribute")
-    # Uso la tua API, è giusto ?
     try:
-        # db.client.get_collection("users").update_one({"user_id" : user_id}, {"$set": {f"data.{payload.attribute}": payload.record}})
-        # Giusto no ?
         up_status = db.update("users", {"user_id" : user_id, f"data.{payload.attribute}": payload.record})
         if up_status.matched_count == 0:
             raise HTTPException(status_code = 402, detail = "User not found")
