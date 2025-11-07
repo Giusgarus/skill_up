@@ -4,8 +4,9 @@ from pymongo.database import Database
 from pymongo.collection import Collection
 from pymongo import ASCENDING, DESCENDING
 import db.client as client
+from pymongo.collection import Collection
+from pymongo import ASCENDING, DESCENDING
 import utility
-
 
 def connect_to_db() -> Database:
     if not client.ping():
@@ -20,6 +21,7 @@ def insert(table_name: str, record: dict) -> dict:
         return db[table_name].insert_one(record)
     except PyMongoError as e:
         raise RuntimeError(e)
+    
     
 def insert_many(table_name: str, records: list[dict]) -> list[dict]:
     results = []
@@ -51,35 +53,33 @@ def update_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-
-def find_one(table_name: str, filters: dict = None, projection: dict = None):
+def find_one(table_name: str, filters: dict = {}, projection: dict = None) -> list:
     db = connect_to_db()
     try:
-        return db[table_name].find_one(filter=filters or {}, projection=projection)
+        cursor = db[table_name].find_one(filter = filters, projection = projection) # automatically handles the None cases
+        return cursor
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_many(table_name: str, filters: dict = None, projection: dict = None) -> list[dict]:
+def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> list[dict]:
     db = connect_to_db()
     collection = db[table_name]
     assert isinstance(collection, Collection) # assures that db[table_name] is able to call the find method
     try:
-        cursor = db[table_name].find(filter=filters or {}, projection=projection)
+        cursor = db[table_name].find(filter = filters, projection = projection)
         return list(cursor)
     except PyMongoError as e:
         raise RuntimeError(e)
-    
-def create_indexes(db: Optional[Database]) -> Database:
+
+def create_indexes(db: Optional[Database]) -> None:
     if db is None:
         return
     db["users"].create_index([("user_id", ASCENDING)], unique=True, name="users_index1")
-    db["users"].create_index([("username", ASCENDING)], name="users_index2")
+    db["users"].create_index([("username", ASCENDING)], unique=True, name="users_index2")
     db["tasks"].create_index([("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
-    db["sessions"].create_index([("token", ASCENDING)], name="sessions_index")
-    db["leaderboard"].create_index([("user_id", ASCENDING)], name="leaderboard_index")
-    db["leaderboard"].create_index([("username", 1)], unique=True)
+    db["sessions"].create_index([("token", ASCENDING)], unique=True, name="sessions_index")
+    db["leaderboard"].create_index([("username", ASCENDING)], unique = True, name="leaderboard_index")
     db["leaderboard"].create_index([("score", DESCENDING), ("username", ASCENDING)])
-    return db
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     '''

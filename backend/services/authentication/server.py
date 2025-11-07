@@ -1,10 +1,10 @@
 import datetime
 from typing import Optional
-from backend.utils import timing
 from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import timezone as _tz
-import backend.db.client as client
+
+from pydantic import BaseModel
 import utils.security as security
 import utils.session as session
 import db.database as db
@@ -32,26 +32,20 @@ def register(payload: RegisterInput) -> dict:
     email = payload.email.strip().lower()
     # Check that all the fileds are in the payload
     if not username or not password or not email:
-        raise HTTPException(status_code = 400, detail = "Username, password and email are required")
+        raise HTTPException(status_code = 400, detail = "Username/password/email are required")
     # Check that the password is good enough
     if not security.check_register_password(password):
         raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
-    # Check if the user already exists
-    results = db.find_one(
-        table_name="users",
-        filters={"username": username},
-        projection={"_id": True}
-    )
+    results = db.find_one(table_name = "users", filters = {"username": username}, projection = {"_id" : True})
     if results:
         raise HTTPException(status_code = 401, detail = "User already exists")
-    # Registration of the user
     record = {
-        "user_id": str(uuid.uuid4()),
-        "username": username,
+        "username": str(uuid.uuid4()),
         "password_hash": security.hash_password(password),
+        "user_id": user_id,
         "email": email,
         "n_tasks_done": 0,
-        "creation_time_account": timing.now(),
+        "creation_time_account": datetime.datetime.now(UTC),
         "data": {
             "score": 0,
             "name": None, "surname": None,
@@ -60,8 +54,8 @@ def register(payload: RegisterInput) -> dict:
         }
     }
     try:
-        db.insert(table_name="users", record=record)
-    except Exception:
+        db.insert(table_name = "users", record = record)
+    except Exception as e:
         raise HTTPException(status_code = 500, detail = "Database error while creating user")
     token = session.generate_session(record["user_id"])
     return {"token": token, "username": username}
@@ -74,51 +68,31 @@ def login(payload: LoginInput) -> dict:
     if not username or not password:
         raise HTTPException(status_code = 400, detail = "Username and password are required")
     # Login
-    user = db.find_one(
-        table_name="users",
-        filters={"username": username},
-        projection={"_id" : False, "password_hash" : True, "user_id" : True}
-    )
+    user = db.find_one(table_name = "users", filters = {"username": username}, projection = {"_id" : False, "password_hash" : True, "user_id" : True})
     # Check if username and password are equals
-    if not user or not security.verify_password(user["password_hash"], password):
+    if user is None or not security.verify_password(user["password_hash"], password):
         raise HTTPException(status_code = 401, detail = "Invalid username or password")
     try:
         return {"token": session.generate_session(user["user_id"]), "username": username}
     except:
-        return {"valid" : False} # why not "return {}"? Forse va messo anche nel return di sopra il campo valid pero' con True?
+        return {"valid" : False}
 
 @router.post("/check_bearer", status_code=201)
-def check_bearer(payload: CheckBearer) -> dict:
+def validate_bearer(payload: CheckBearer) -> dict:
     token = payload.token
     username = payload.username
-    # Check if the token is correct
+    # Check if the token is present
     if not token:
         raise HTTPException(status_code = 400, detail = "Token required")
     ok, user_id = session.verify_session(token)
     if not ok or not user_id:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
     # Check if the user exists
-    record = db.find_one(
-        table_name = "users",
-        filters = {"user_id": user_id},
-        projection = {"_id": False, "username": True}
-    )
-    if not record:
-        raise HTTPException(status_code = 401, detail = "User not found")
-    if not record["username"]:
+    proj_user_username = db.find_one(table_name = "users", filters = {"user_id": user_id}, projection = {"_id": False, "username": True})
+    username_proj = proj_user_username["username"] if proj_user_username else None
+    if username_proj is None:
         raise HTTPException(status_code = 402, detail = "User not found")
     # Check if the username is equal to the one associated with the token
-    if username != record["username"]:
+    if username != username_proj:
         raise HTTPException(status_code = 403, detail = "Mismatch user id, username")
-    return {"valid": True, "username": record["username"]}
-
-@router.get("/{user_id}")
-def get_user(user_id: str):
-    results = db.find(
-        table_name="users",
-        filters={"id": user_id}
-    )
-    user = results["data"][0]
-    if not user:
-        raise HTTPException(404, "Not found")
-    return user
+    return {"valid": True, "username": username_proj}

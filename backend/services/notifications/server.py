@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException
 import backend.utils.timing as timing
 import backend.utils.session as session
 
-
 router = APIRouter(prefix="/services/notifications", tags=["notifications"])
 
 @router.post("/device", status_code=200)
