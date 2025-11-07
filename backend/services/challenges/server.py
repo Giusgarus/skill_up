@@ -8,7 +8,7 @@ from pymongo.errors import PyMongoError
 from pymongo import ReturnDocument
 
 MIN_HEAP_K_LEADER = 10
-ALLOWED_DATA_FIELDS: Set[str] = {"score", "name", "surname", "height", "weight", "sex", "info1", "info2", "info3", "info4"}
+ALLOWED_DATA_FIELDS: Set[str] = {"score", "name", "surname", "height", "weight", "sex", "info1", "info2", "info3", "info4", "profile_pic"}
 MIN_LEN_ADF = 1
 MAX_LEN_ADF = 500
 

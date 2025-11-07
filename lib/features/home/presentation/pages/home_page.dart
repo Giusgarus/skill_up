@@ -4,15 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:skill_up/features/auth/data/services/auth_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
+import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
 import 'package:skill_up/features/home/data/daily_task_completion_storage.dart';
 import 'package:skill_up/features/home/data/medal_history_repository.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
 import 'package:skill_up/features/home/domain/calendar_labels.dart';
 import 'package:skill_up/features/home/domain/medal_utils.dart';
 import 'package:skill_up/features/home/presentation/pages/monthly_medals_page.dart';
+import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
 import 'package:skill_up/features/profile/data/user_profile_storage.dart';
 import 'package:skill_up/features/profile/presentation/pages/user_info_page.dart';
 import 'package:skill_up/features/settings/presentation/pages/settings_page.dart';
+import 'package:skill_up/shared/notifications/notification_service.dart';
 
 
 class DailyTask {
@@ -61,6 +64,15 @@ class _HomePageState extends State<HomePage> {
   final UserProfileStorage _profileStorage = UserProfileStorage.instance;
   final AuthSessionStorage _authStorage = AuthSessionStorage();
   final TaskApi _taskApi = TaskApi();
+  final AuthApi _authApi = AuthApi();
+  Timer? _tokenRetryTimer;
+  bool _tokenValidationInProgress = false;
+  bool _sessionInvalidated = false;
+  bool _notificationsRegistered = false;
+  bool _profileSyncScheduled = false;
+  static const Duration _tokenRetryDelay = Duration(seconds: 12);
+  static const String _serverLogoutMessage =
+      'Il server ti ha disconnesso. Effettua di nuovo il login per continuare.';
   AuthSession? _session;
   late final DateTime _today;
   late final List<DateTime> _currentWeek;
@@ -86,13 +98,16 @@ class _HomePageState extends State<HomePage> {
     _ensureWeekCoverage();
     _seedMedalsFromCompletions();
     _selectedDay = _today;
-    _loadProfileImage();
-    _loadPersistedTaskCompletions();
+    unawaited(_loadProfileImage());
+    unawaited(_loadPersistedTaskCompletions());
     unawaited(_ensureSession());
+    unawaited(_validateSessionWithRetry());
   }
 
   @override
   void dispose() {
+    _tokenRetryTimer?.cancel();
+    _authApi.close();
     _taskApi.close();
     super.dispose();
   }
@@ -210,6 +225,117 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _profileImage = MemoryImage(bytes);
     });
+  }
+
+  Future<void> _validateSessionWithRetry() async {
+    if (_sessionInvalidated || _tokenValidationInProgress) {
+      return;
+    }
+    final session = await _ensureSession();
+    if (session == null) {
+      return;
+    }
+    _tokenValidationInProgress = true;
+    final result = await _authApi.validateToken(
+      token: session.token,
+      usernameHint: session.username,
+    );
+    _tokenValidationInProgress = false;
+    if (!mounted) {
+      return;
+    }
+    if (result.isValid) {
+      await _handleSessionConfirmed(session, result);
+      return;
+    }
+    if (result.isConnectivityIssue) {
+      _tokenRetryTimer?.cancel();
+      _tokenRetryTimer = Timer(_tokenRetryDelay, () {
+        if (!mounted || _sessionInvalidated) {
+          return;
+        }
+        unawaited(_validateSessionWithRetry());
+      });
+      return;
+    }
+    await _handleSessionInvalidation(
+      message: result.errorMessage ?? _serverLogoutMessage,
+    );
+  }
+
+  Future<void> _handleSessionConfirmed(
+    AuthSession session,
+    BearerCheckResult result,
+  ) async {
+    final normalizedUsername = (result.username?.trim().isNotEmpty ?? false)
+        ? result.username!.trim()
+        : session.username;
+    var activeSession = session;
+    if (normalizedUsername != session.username) {
+      activeSession = AuthSession(
+        token: session.token,
+        username: normalizedUsername,
+      );
+      await _authStorage.saveSession(activeSession);
+      _session = activeSession;
+      _medalRepository.setActiveUser(activeSession.username);
+    }
+    if (!_profileSyncScheduled) {
+      _profileSyncScheduled = true;
+      unawaited(
+        UserProfileSyncService.instance.syncAll(
+          token: activeSession.token,
+          username: activeSession.username,
+        ),
+      );
+    }
+    if (!_notificationsRegistered) {
+      _notificationsRegistered = true;
+      unawaited(
+        NotificationService.instance.registerSession(activeSession),
+      );
+    }
+  }
+
+  Future<void> _handleSessionInvalidation({String? message}) async {
+    if (_sessionInvalidated) {
+      return;
+    }
+    _sessionInvalidated = true;
+    _tokenRetryTimer?.cancel();
+    await _authStorage.clearSession();
+    if (!mounted) {
+      return;
+    }
+    await _showServerLogoutDialog(message ?? _serverLogoutMessage);
+    if (!mounted) {
+      return;
+    }
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      LoginPage.route,
+      (_) => false,
+    );
+  }
+
+  Future<void> _showServerLogoutDialog(String message) async {
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Sessione scaduta'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   List<DailyTask> _seedTasks() {

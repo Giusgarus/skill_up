@@ -7,6 +7,7 @@ from datetime import timezone as _tz
 from pydantic import BaseModel
 import utils.security as security
 import utils.session as session
+import utils.timing as timing
 import db.database as db
 UTC = _tz.utc
 
@@ -40,12 +41,13 @@ def register(payload: RegisterInput) -> dict:
     if results:
         raise HTTPException(status_code = 401, detail = "User already exists")
     record = {
-        "username": str(uuid.uuid4()),
+        "username": username,
         "password_hash": security.hash_password(password),
-        "user_id": user_id,
+        "user_id": str(uuid.uuid4()),
         "email": email,
         "n_tasks_done": 0,
-        "creation_time_account": datetime.datetime.now(UTC),
+        "profile_pic": None,
+        "creation_time_account": timing.now(),
         "data": {
             "score": 0,
             "name": None, "surname": None,
