@@ -20,10 +20,7 @@ class ProfileApi {
     required String token,
     required String base64Image,
   }) async {
-    final payload = jsonEncode({
-      'token': token,
-      'pic': base64Image,
-    });
+    final payload = jsonEncode({'token': token, 'pic': base64Image});
 
     try {
       final response = await _client.post(
@@ -34,9 +31,7 @@ class ProfileApi {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return const ProfileApiResult.success();
       }
-      return ProfileApiResult.error(
-        'Upload failed (${response.statusCode}).',
-      );
+      return ProfileApiResult.error('Upload failed (${response.statusCode}).');
     } on SocketException catch (_) {
       return const ProfileApiResult.error('No internet connection.');
     } on HttpException catch (_) {
@@ -136,11 +131,8 @@ class ProfileApiResult {
       error = null,
       stackTrace = null;
 
-  const ProfileApiResult.error(
-    this.errorMessage, {
-    this.error,
-    this.stackTrace,
-  }) : message = null;
+  const ProfileApiResult.error(this.errorMessage, {this.error, this.stackTrace})
+    : message = null;
 
   final String? message;
   final String? errorMessage;

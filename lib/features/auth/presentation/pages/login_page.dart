@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../presentation/widgets/auth_scaffold.dart';
@@ -8,6 +10,7 @@ import '../../data/services/auth_api.dart';
 import '../../data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
+import 'package:skill_up/shared/notifications/notification_service.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -52,6 +55,9 @@ class _LoginPageState extends State<LoginPage> {
           await UserProfileSyncService.instance.syncAll(
             token: session.token,
             username: session.username,
+          );
+          unawaited(
+            NotificationService.instance.registerSession(session),
           );
         } catch (storageError, storageStackTrace) {
           if (kDebugMode) {

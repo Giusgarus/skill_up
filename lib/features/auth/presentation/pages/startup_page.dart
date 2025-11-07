@@ -6,6 +6,7 @@ import 'package:skill_up/features/auth/data/services/auth_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
+import 'package:skill_up/shared/notifications/notification_service.dart';
 
 import 'login_page.dart';
 
@@ -51,10 +52,13 @@ class _StartupPageState extends State<StartupPage> {
         final normalizedUsername = (result.username?.trim().isNotEmpty ?? false)
             ? result.username!.trim()
             : session.username;
+        var activeSession = session;
         if (normalizedUsername != session.username) {
-          await _sessionStorage.saveSession(
-            AuthSession(token: session.token, username: normalizedUsername),
+          activeSession = AuthSession(
+            token: session.token,
+            username: normalizedUsername,
           );
+          await _sessionStorage.saveSession(activeSession);
         }
         unawaited(
           UserProfileSyncService.instance.syncAll(
@@ -62,11 +66,13 @@ class _StartupPageState extends State<StartupPage> {
             username: normalizedUsername,
           ),
         );
+        unawaited(NotificationService.instance.registerSession(activeSession));
         _goTo(HomePage.route);
         return;
       }
 
       if (result.isConnectivityIssue) {
+        unawaited(NotificationService.instance.registerSession(session));
         _goTo(HomePage.route);
         return;
       }

@@ -1,5 +1,8 @@
 from pymongo import MongoClient, PyMongoError
+from typing import Optional
 from pymongo.database import Database
+from pymongo.collection import Collection
+from pymongo import ASCENDING, DESCENDING
 import db.client as client
 from pymongo.collection import Collection
 from pymongo import ASCENDING, DESCENDING
@@ -29,8 +32,8 @@ def insert_many(table_name: str, records: list[dict]) -> list[dict]:
 
 def update(table_name: str, record: dict) -> dict:
     db = connect_to_db()
-    if not check_primary_keys(table_name, record):
-        raise RuntimeError(f"The primary keys {table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
+    if not utility.check_primary_keys(table_name, record):
+        raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
     primary_keys_dict = {}
     payload = {}
     for k, v in record.items():

@@ -1,4 +1,4 @@
-package com.example.skill_up
+package com.app.SkillUp
 
 import io.flutter.embedding.android.FlutterActivity
 

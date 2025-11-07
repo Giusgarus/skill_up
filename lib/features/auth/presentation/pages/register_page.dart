@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../presentation/widgets/auth_scaffold.dart';
@@ -8,6 +10,7 @@ import '../../data/services/auth_api.dart';
 import '../../data/storage/auth_session_storage.dart';
 import '../../utils/password_validator.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
+import 'package:skill_up/shared/notifications/notification_service.dart';
 
 class RegisterPage extends StatefulWidget {
   static const route = '/register';
@@ -103,6 +106,9 @@ class _RegisterPageState extends State<RegisterPage> {
         if (result.session != null) {
           try {
             await _sessionStorage.saveSession(result.session!);
+            unawaited(
+              NotificationService.instance.registerSession(result.session!),
+            );
           } catch (storageError, storageStackTrace) {
             if (kDebugMode) {
               debugPrint('Failed to persist session: $storageError');
