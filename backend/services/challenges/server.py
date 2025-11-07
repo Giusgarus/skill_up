@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 import backend.db.database as db
 import backend.utils.session as session
+import backend.utils.timing as utils
 from pydantic import BaseModel, StringConstraints, constr
 from typing import Annotated, Any, Set
 from pymongo.errors import PyMongoError
@@ -46,7 +47,7 @@ def task_done(payload: SetTaskDone) -> dict:
         raise HTTPException(status_code = 402, detail = "Invalid Task ID")
     # Manca l'api per gli update che non sono setter ma sono più complessi, vedi te come implementarlo e se implementarlo
     # Qui lo faccio in maniera diretta senza la tua API
-    proj_task = db.client.get_collection("tasks").find_one_and_update({"task_id" : task_id, "user_id" : user_id},{"$set": {"completed_at": session.get_now_timestamp()}}, projection = {"_id" : False, "score" : True}, return_document = ReturnDocument.AFTER)
+    proj_task = db.client.get_collection("tasks").find_one_and_update({"task_id" : task_id, "user_id" : user_id},{"$set": {"completed_at": utils.now()}}, projection = {"_id" : False, "score" : True}, return_document = ReturnDocument.AFTER)
     score = proj_task["score"] if proj_task else None
     # is None diverso da not, se è 0 il not è vero perché è false, ma non è None
     if score is None:

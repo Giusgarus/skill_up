@@ -25,13 +25,3 @@ def generate_session(user_id: str) -> str:
             token = None
     else:
         raise HTTPException(status_code = 500, detail = "Could not create a session token")
-    
-def verify_session(token: str):
-    session = db.find_one(
-        table_name = "sessions",
-        filters = {"token": token},
-        projection = {"_id" : False, "user_id" : True}
-    )
-    if not session or not session["user_id"]:
-        return [False, ""]
-    return [True, session["user_id"]]
