@@ -17,10 +17,8 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
     "password_hash": "<base64(salt||scrypt_key)>",
     "email": "<string>",
     "n_tasks_done": "<int>",
-    "data": {
-      "score": "<int>",
-      ...
-    }
+    "score": "<int>",
+    ...
   },
   .
   .

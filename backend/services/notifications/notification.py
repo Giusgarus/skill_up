@@ -4,35 +4,19 @@ import os
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import backend.db.database as db
 
 import firebase_admin
-from fastapi import APIRouter, HTTPException
+from fastapi import HTTPException
 from firebase_admin import credentials, messaging
-from pydantic import BaseModel, Field
 from pymongo import MongoClient
 import backend.utils.timing as timing
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-logger = logging.getLogger("notifications")
-
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "skillup")
-
-try:
-    mongo_client = MongoClient(MONGO_URI)
-    mongo_db = mongo_client[MONGO_DB]
-    user_collection = mongo_db["users"]
-    sessions_collection = mongo_db["sessions"]
-    device_tokens_collection = mongo_db["device_tokens"]
-except Exception as exc:
-    logger.error("Could not connect to MongoDB: %s", exc)
-    raise
 
 SERVICE_ACCOUNT_PATH = os.getenv(
     "FIREBASE_SERVICE_ACCOUNT",
     str(Path(__file__).with_name("skillup-9645f-firebase-adminsdk-fbsvc-20eca1ab9c.json")),
 )
-
 DEFAULT_TITLE = os.getenv("NOTIFICATION_TITLE", "SkillUp")
 DEFAULT_BODY = os.getenv("NOTIFICATION_BODY", "prova")
 INTERVAL_SECONDS = max(
@@ -51,19 +35,9 @@ stop_event = threading.Event()
 scheduler_started = False
 
 
-class DeviceRegistration(BaseModel):
-    username: str
-    session_token: str = Field(alias="session_token")
-    device_token: str = Field(alias="device_token", min_length=1)
-    platform: str = "android"
-
-    model_config = {"populate_by_name": True}
-
-
-class ManualNotification(BaseModel):
-    body: Optional[str] = None
-    title: Optional[str] = None
-
+def get_logger():
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    return logging.getLogger("notifications")
 
 def _ensure_firebase_app() -> firebase_admin.App:
     global firebase_app
@@ -82,22 +56,8 @@ def _ensure_firebase_app() -> firebase_admin.App:
 
     cred = credentials.Certificate(str(credentials_path))
     firebase_app = firebase_admin.initialize_app(cred)
-    logger.info("Firebase Admin app initialized.")
+    get_logger().info("Firebase Admin app initialized.")
     return firebase_app
-
-
-def _verify_session(session_token: str) -> Tuple[str, str]:
-    session = sessions_collection.find_one({"token": session_token})
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
-    user_id = session.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Session missing user binding.")
-    user = user_collection.find_one({"user_id": user_id}, {"username": 1})
-    username = user.get("username") if user else None
-    if not username:
-        raise HTTPException(status_code=404, detail="Bound user no longer exists.")
-    return user_id, username
 
 
 def _chunked(tokens: List[str], size: int) -> List[List[str]]:
@@ -115,7 +75,7 @@ def send_broadcast_notification(*, body: Optional[str] = None, title: Optional[s
         if doc.get("device_token")
     ]
     if not tokens:
-        logger.info("No registered device tokens to notify.")
+        get_logger().info("No registered device tokens to notify.")
         return {"sent": 0, "failed": 0, "removed": 0}
 
     sent = failed = removed = 0
@@ -147,13 +107,13 @@ def send_broadcast_notification(*, body: Optional[str] = None, title: Optional[s
                 ):
                     device_tokens_collection.delete_one({"device_token": batch[index]})
                     removed += 1
-            logger.warning(
+            get_logger().warning(
                 "FCM multicast had failures: %s/%s batch",
                 response.failure_count,
                 len(batch),
             )
 
-    logger.info(
+    get_logger().info(
         "Notification broadcast summary sent=%s failed=%s removed=%s",
         sent,
         failed,
@@ -163,7 +123,7 @@ def send_broadcast_notification(*, body: Optional[str] = None, title: Optional[s
 
 
 def _scheduler_loop() -> None:
-    logger.info(
+    get_logger().info(
         "Notification scheduler started with %s seconds interval.",
         INTERVAL_SECONDS,
     )
@@ -175,7 +135,7 @@ def _scheduler_loop() -> None:
                 last_run_summary["last_run"] = timing.now_iso()
                 last_run_summary["result"] = summary
         except Exception:  # noqa: BLE001
-            logger.exception("Scheduled notification run failed.")
+            get_logger().exception("Scheduled notification run failed.")
 
 
 def _start_scheduler_once() -> None:

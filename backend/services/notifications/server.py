@@ -1,38 +1,63 @@
 from datetime import datetime
 from typing import Dict
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+import notification as notify
 import backend.utils.timing as timing
 import backend.utils.session as session
+import backend.db.database as db
+
+
+class DeviceRegistration(BaseModel):
+    user_id: str
+    username: str
+    platform: str = "android"
+    # questi campi servono davvero? che differenza di logica c'è tra il token del device e quello della sessione?
+    session_token: str
+    device_token: str
+    model_config: dict = {"populate_by_name": True}
+
+class ManualNotification(BaseModel):
+    body: str = None
+    title: str = None
+
 
 router = APIRouter(prefix="/services/notifications", tags=["notifications"])
 
 @router.post("/device", status_code=200)
-def register_device(payload: dict) -> Dict[str, str]:
-    session = session.get_session(token)
-    user_id, username = session.verify_session(payload.session_token)
-
-    canonical_username = payload.username.strip() or username
-    if canonical_username != username:
-        logger.info(
+def register_device(payload: DeviceRegistration) -> Dict[str, str]:
+    token = session.generate_session(payload["user_id"])
+    ok, user_id = session.verify_session(token)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid or missing token used to generate the session")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Session missing user binding")
+    username = db.find_one(
+        table_name="users",
+        filters={"user_id": user_id},
+        projection={"_id": False, "username": True}
+    )
+    if not username:
+        raise HTTPException(status_code=404, detail="Bound user no longer exists.")
+    given_username = payload.username.strip() or username
+    if given_username != username:
+        notify.get_logger().info(
             "Client username mismatch: client=%s database=%s. Using database value.",
-            canonical_username,
+            given_username,
             username,
         )
-
-    device_tokens_collection.update_one(
-        {"device_token": payload.device_token},
-        {
-            "$set": {
-                "device_token": payload.device_token,
-                "user_id": user_id,
-                "username": username,
-                "platform": payload.platform,
-                "updated_at": timing.get_now_timestamp(),
-            },
+    # l'insert va fatto in session o serve anche una tabella "devices"? oppure vanno aggiunti campi alla tabella "sessions"?
+    db.insert(
+        table_name="sessions",
+        record={
+            "user_id": user_id,
+            "device_token": payload.device_token, # I CAMPI INSERITI NON VANNO BENE, DA CAPIRE DI COSA FARE LA INSERT
+            "user_id": payload["user_id"],
+            "username": username,
+            "updated_at": timing.now(),
         },
-        upsert=True,
     )
-    logger.info(
+    notify.get_logger().info(
         "Registered device token for user %s (%s).",
         username,
         payload.platform,

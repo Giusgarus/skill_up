@@ -8,12 +8,16 @@ import backend.utils.timing as timing
 def generate_token() -> str:
     return secrets.token_urlsafe(48) # 256-bit+ token, URL-safe
 
-def verify_session(token: str):
-    session = db.find_one(table_name = "sessions", filters = {"token": token}, projection = {"_id" : False, "user_id" : True})
+def verify_session(token: str) -> tuple[bool, str]:
+    session = db.find_one(
+        table_name = "sessions",
+        filters = {"token": token},
+        projection = {"_id" : False, "user_id" : True}
+    )
     user_id = session["user_id"] if session else None
     if not user_id:
-        return [False, ""]
-    return [True, user_id]
+        return (False, "")
+    return (True, user_id)
 
 def generate_session(user_id: str) -> str:
     for _ in range(6):

@@ -30,26 +30,29 @@ def insert_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-def update(table_name: str, record: dict) -> dict:
+def update_one(table_name: str, keys_dict: dict, values_dict: dict) -> dict:
     db = connect_to_db()
-    if not utility.check_primary_keys(table_name, record):
+    if not utility.check_primary_keys(table_name, keys_dict):
         raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
-    primary_keys_dict = {}
-    payload = {}
-    for k, v in record.items():
-        if k in primary_keys_dict[table_name]:
-            primary_keys_dict[k] = v
-        else:
-            payload[k] = v
     try:
-        return db[table_name].update_one(primary_keys_dict, {"$set": payload})
+        return db[table_name].update_one(keys_dict, {"$set": values_dict})
     except PyMongoError as e:
         raise RuntimeError(e)
 
 def update_many(table_name: str, records: list[dict]) -> list[dict]:
     results = []
-    for record in records:
-        result = update(table_name, record)
+    # Check of presence of the keys for each record
+    keys_dict = {}
+    for i, record in enumerate(records):
+        keys_dict[i] = {}
+        for key in utility.table_primary_keys_dict[table_name]:
+            if key not in record.keys():
+                raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the records field")
+            keys_dict[i][key] = record[key]
+            del record[key]
+    # Update of each record
+    for i, record in enumerate(records):
+        result = update_one(table_name, keys_dict[i], record)
         results.append(result)
     return results
 
@@ -70,6 +73,9 @@ def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> l
         return list(cursor)
     except PyMongoError as e:
         raise RuntimeError(e)
+
+def find_one_and_update(table_name: str, filters: dict = {}, projection: dict = None) -> list:
+    find_one(table_name, filters, projection)
 
 def create_indexes(db: Optional[Database]) -> None:
     if db is None:
