@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,13 +8,19 @@ import '../../utils/password_validator.dart';
 
 /// Thin wrapper around http client to keep API calls isolated from widgets.
 class AuthApi {
-  AuthApi({http.Client? client, this.baseUrl = _defaultBaseUrl})
-    : _client = client ?? http.Client();
+  AuthApi({
+    http.Client? client,
+    this.baseUrl = _defaultBaseUrl,
+    Duration? requestTimeout,
+  })  : _client = client ?? http.Client(),
+        _requestTimeout = requestTimeout ?? _defaultRequestTimeout;
 
   final http.Client _client;
   final String baseUrl;
+  final Duration _requestTimeout;
 
   static const _defaultBaseUrl = 'http://127.0.0.1:8000';
+  static const _defaultRequestTimeout = Duration(seconds: 6);
 
   Uri get _registerUri => Uri.parse(baseUrl).resolve('/auth/register');
   Uri get _loginUri => Uri.parse(baseUrl).resolve('/auth/login');
@@ -35,7 +42,7 @@ class AuthApi {
     };
 
     try {
-      final response = await _client.post(
+      final response = await _post(
         _registerUri,
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
@@ -46,6 +53,10 @@ class AuthApi {
     } on HttpException catch (_) {
       return const AuthResult.error(
         'Unable to reach the server. Please retry.',
+      );
+    } on TimeoutException catch (_) {
+      return const AuthResult.error(
+        'Request timed out. Please retry.',
       );
     } on FormatException catch (_) {
       return const AuthResult.error('Malformed server response.');
@@ -65,7 +76,7 @@ class AuthApi {
     final payload = {'username': username, 'password': password};
 
     try {
-      final response = await _client.post(
+      final response = await _post(
         _loginUri,
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
@@ -77,6 +88,8 @@ class AuthApi {
       return const LoginResult.error(
         'Unable to reach the server. Please retry.',
       );
+    } on TimeoutException catch (_) {
+      return const LoginResult.error('Request timed out. Please retry.');
     } on FormatException catch (_) {
       return const LoginResult.error('Malformed server response.');
     } catch (error, stackTrace) {
@@ -102,7 +115,7 @@ class AuthApi {
         'username': usernameHint.trim(),
     };
     try {
-      final response = await _client.post(
+      final response = await _post(
         _checkBearerUri,
         headers: headers,
         body: jsonEncode(payload),
@@ -140,6 +153,8 @@ class AuthApi {
       return const BearerCheckResult.error('Unable to reach the server.');
     } on HttpException catch (_) {
       return const BearerCheckResult.error('Unable to reach the server.');
+    } on TimeoutException catch (_) {
+      return const BearerCheckResult.error('Unable to reach the server.');
     } catch (error, stackTrace) {
       return BearerCheckResult.error(
         'Unexpected error while validating token.',
@@ -150,6 +165,16 @@ class AuthApi {
   }
 
   void close() => _client.close();
+
+  Future<http.Response> _post(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    return _client
+        .post(uri, headers: headers, body: body)
+        .timeout(_requestTimeout);
+  }
 
   AuthResult _toResult(http.Response response, {String? requestedUsername}) {
     Map<String, dynamic>? body;
