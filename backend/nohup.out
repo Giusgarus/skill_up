@@ -1,0 +1,4 @@
+{"t":{"$date":"2025-11-10T16:33:55.710+01:00"},"s":"I",  "c":"-",        "id":8991200, "ctx":"thread1","msg":"Shuffling initializers","attr":{"seed":2433314919}}
+{"t":{"$date":"2025-11-10T16:33:55.714+01:00"},"s":"I",  "c":"CONTROL",  "id":20697,   "ctx":"thread1","msg":"Renamed existing log file","attr":{"oldLogPath":"/Users/giuseppe/data/log/mongodb/log.log","newLogPath":"/Users/giuseppe/data/log/mongodb/log.log.2025-11-10T15-33-55"}}
+{"t":{"$date":"2025-11-10T16:35:03.214+01:00"},"s":"I",  "c":"-",        "id":8991200, "ctx":"thread1","msg":"Shuffling initializers","attr":{"seed":2669137560}}
+{"t":{"$date":"2025-11-10T16:35:03.220+01:00"},"s":"I",  "c":"CONTROL",  "id":20697,   "ctx":"thread1","msg":"Renamed existing log file","attr":{"oldLogPath":"/Users/giuseppe/data/log/mongodb/log.log","newLogPath":"/Users/giuseppe/data/log/mongodb/log.log.2025-11-10T15-35-03"}}

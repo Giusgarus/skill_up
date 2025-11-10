@@ -426,18 +426,35 @@ class _HomePageState extends State<HomePage> {
 
   int get _completionPercent => (_completionRatio * 100).round();
 
-  String get _motivationMessage {
-    if (_tasks.isEmpty) {
-      return 'You do not have tasks scheduled yet.';
+  int get _currentStreak {
+    int streak = 0;
+    DateTime day = _today;
+
+    while (true) {
+      // se non abbiamo info su quel giorno, o è nel futuro, stop
+      final completed = _completedTasksByDay[day];
+      if (completed == null) {
+        break;
+      }
+
+      // calcoliamo la medaglia di quel giorno
+      final medal = medalForProgress(
+        completed: completed,
+        total: _totalTasks,
+      );
+
+      // se non c'è medaglia (none), lo streak si interrompe
+      if (medal == MedalType.none) {
+        break;
+      }
+
+      streak++;
+      day = day.subtract(const Duration(days: 1));
     }
-    if (_completionPercent == 100) {
-      return 'Great! All daily tasks are complete for today.';
-    }
-    if (_completionPercent >= 60) {
-      return 'Almost there, finish the remaining tasks to complete your day!';
-    }
-    return 'You are doing a great job, make sure to complete all tasks of today!';
+
+    return streak;
   }
+
 
   void _toggleTask(String id) {
     final normalizedDay = dateOnly(_selectedDay);
@@ -586,31 +603,56 @@ class _HomePageState extends State<HomePage> {
                     onDaySelected: _selectDay,
                   ),
                   const SizedBox(height: 32),
-                  _DailyTasksCard(
-                    tasks: _tasks,
-                    completionPercent: _completionPercent,
-                    medalType: todaysMedal,
-                    onToggleTask: _toggleTask,
+                  // CARD SUMMARY
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: _DailyTasksCard(
+                        tasks: _tasks,
+                        completionPercent: _completionPercent,
+                        medalType: todaysMedal,
+                        onToggleTask: _toggleTask,
+                      ),
+                    ),
                   ),
+
+                  Transform.translate(
+                    offset: const Offset(0, -12),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: _StreakBanner(streakDays: _currentStreak),
+                      ),
+                    ),
+                  ),
+
                   const SizedBox(height: 20),
-                  _MotivationBanner(message: _motivationMessage),
-                  const SizedBox(height: 26),
                   _HabitGrid(tasks: _tasks, onTaskTap: _toggleTask),
-                  const SizedBox(height: 26),
-                  _AddHabitButton(
-                    onPressed: () {
-                      setState(() {
-                        _isAddHabitOpen = true;
-                        _newHabitGoal = '';
-                        _newHabitSelectedDays.clear();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 24),
+
+                  // spazio extra perché il bottone è fisso sopra
+                  const SizedBox(height: 120),
                 ],
               ),
             ),
           ),
+
+          // 🔻 bottone fisso in basso
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 24,
+            child: _AddHabitButton(
+              onPressed: () {
+                setState(() {
+                  _isAddHabitOpen = true;
+                  _newHabitGoal = '';
+                  _newHabitSelectedDays.clear();
+                });
+              },
+            ),
+          ),
+
+          // 🔻 overlay sopra tutto quando è aperto
           if (_isAddHabitOpen)
             _AddHabitOverlay(
               goalText: _newHabitGoal,
@@ -876,42 +918,32 @@ class _CalendarDayBadge extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    final borderColor = isSelected
-        ? const Color(0xFFFFA726)
-        : isToday
-        ? Colors.white.withValues(alpha: 0.7)
-        : null;
-
-    final backgroundColor = isSelected
-        ? Colors.white
-        : Colors.white.withValues(alpha: 0.2);
-
-    final starTint = medalTintForType(medal);
+    final bool hasMedal = medal != MedalType.none;
+    final Color? starTint = hasMedal ? medalTintForType(medal) : null;
 
     return GestureDetector(
       onTap: () => onTap(date),
       child: Column(
+        mainAxisSize: MainAxisSize.min, // 👈 importante
         children: [
           Text('${date.day}', style: textStyle),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(18),
-              border: borderColor != null
-                  ? Border.all(color: borderColor, width: 3)
-                  : null,
-            ),
-            child: SvgPicture.asset(
+          const SizedBox(height: 4), // 👈 prima era 8
+          if (hasMedal)
+            SvgPicture.asset(
               medalAssetForType(medal),
-              width: 26,
-              height: 26,
+              width: 35, // 👈 un po' più piccolo
+              height: 35,
               colorFilter: starTint != null
                   ? ColorFilter.mode(starTint, BlendMode.srcIn)
                   : null,
+            )
+          else
+            SvgPicture.asset(
+              'assets/icons/blank_star_icon.svg',
+              width: 35, // 👈 anche il blank uguale
+              height: 35,
+              fit: BoxFit.contain,
             ),
-          ),
         ],
       ),
     );
@@ -933,183 +965,104 @@ class _DailyTasksCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headingStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-      fontWeight: FontWeight.w800,
-      color: Colors.black,
-      letterSpacing: 1.2,
-    );
-    final starTint = medalTintForType(medalType);
+    // quante “fasce” devono essere accese (25% ciascuna)
+    final int filledLevels =
+    completionPercent == 0 ? 0 : (completionPercent / 25).ceil();
+
+    final Color? starTint = medalTintForType(medalType);
 
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text('DAILY TASKS', style: headingStyle)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (var i = 0; i < tasks.length; i++) ...[
-                      _TaskProgressItem(
-                        task: tasks[i],
-                        onToggleTask: onToggleTask,
-                      ),
-                      if (i != tasks.length - 1) const SizedBox(height: 10),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 20),
-              _CompletionBadge(
-                completionPercent: completionPercent,
-                medalType: medalType,
-                starTint: starTint,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TaskProgressItem extends StatelessWidget {
-  const _TaskProgressItem({required this.task, required this.onToggleTask});
-
-  final DailyTask task;
-  final ValueChanged<String> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onToggleTask(task.id),
-      child: Row(
-        children: [
-          Expanded(child: _ProgressBar(isCompleted: task.isCompleted)),
-          const SizedBox(width: 12),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            child: task.isCompleted
-                ? const Icon(
-                    Icons.check_circle,
-                    key: ValueKey('checked'),
-                    color: Color(0xFF2ECC71),
-                    size: 24,
-                  )
-                : const Icon(
-                    Icons.radio_button_unchecked,
-                    key: ValueKey('unchecked'),
-                    color: Color(0xFFBDBDBD),
-                    size: 24,
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProgressBar extends StatelessWidget {
-  const _ProgressBar({required this.isCompleted});
-
-  final bool isCompleted;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        height: 8,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(color: Colors.black.withValues(alpha: 0.08)),
-            AnimatedFractionallySizedBox(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOut,
-              widthFactor: isCompleted ? 1 : 0,
-              alignment: Alignment.centerLeft,
-              child: Container(color: const Color(0xFF3DD178)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CompletionBadge extends StatelessWidget {
-  const _CompletionBadge({
-    required this.completionPercent,
-    required this.medalType,
-    this.starTint,
-  });
-
-  final int completionPercent;
-  final MedalType medalType;
-  final Color? starTint;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 90,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(38),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 14,
-            offset: const Offset(0, 8),
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            '$completionPercent%',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: Colors.black,
+          Center(
+            child: Text(
+              'DAILY TASKS',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: Colors.black,
+                letterSpacing: 1.2,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color(0xFF424242),
-            ),
-            child: SvgPicture.asset(
-              medalAssetForType(medalType),
-              width: 28,
-              height: 28,
-              colorFilter: starTint != null
-                  ? ColorFilter.mode(starTint!, BlendMode.srcIn)
-                  : null,
-            ),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center, // 🔸 le colonne vicine e centrate
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // 🔹 Colonna barre
+              SizedBox(
+                width: 130,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: List.generate(4, (index) {
+                    final reversedIndex = 3 - index;
+                    final isActive = reversedIndex < filledLevels;
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: index == 3 ? 0 : 10),
+                      child: _SummaryLevelBar(isActive: isActive),
+                    );
+                  }),
+                ),
+              ),
+
+              const SizedBox(width: 30), // 🔸 spazio fra le due colonne (modifica se serve)
+
+              // 🔹 Percentuale + medaglia
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$completionPercent%',
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: 78,
+                    height: 78,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF3F3F3F),
+                    ),
+                    alignment: Alignment.center,
+                    child: medalType == MedalType.none
+                        ? SvgPicture.asset(
+                      'assets/icons/blank_star_icon.svg', // 👈 il tuo file SVG vuoto
+                      width: 78,
+                      height: 78,
+                      fit: BoxFit.contain,
+                    )
+                        : SizedBox(
+                      width: 78,
+                      height: 78,
+                      child: SvgPicture.asset(
+                        medalAssetForType(medalType),
+                        fit: BoxFit.contain,
+                        colorFilter: starTint != null
+                            ? ColorFilter.mode(starTint, BlendMode.srcIn)
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ],
       ),
@@ -1117,27 +1070,68 @@ class _CompletionBadge extends StatelessWidget {
   }
 }
 
-class _MotivationBanner extends StatelessWidget {
-  const _MotivationBanner({required this.message});
+class _SummaryLevelBar extends StatelessWidget {
+  const _SummaryLevelBar({required this.isActive});
 
-  final String message;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 120,
+      height: 26,
+      decoration: BoxDecoration(
+        color: isActive
+            ? const Color(0xFF63DE77)  // verde più acceso
+            : const Color(0xFFD8D8D8), // grigio come nello screen
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
+  }
+}
+
+
+
+class _StreakBanner extends StatelessWidget {
+  const _StreakBanner({required this.streakDays});
+
+  final int streakDays;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(26),
+        color: const Color(0xFFE5E5E5).withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Text(
-        message,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: Colors.black.withValues(alpha: 0.75),
-        ),
-        textAlign: TextAlign.center,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center, // testo + fiamma centrati
+        children: [
+          Text(
+            '$streakDays DAYS STREAK',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Image.asset(
+            'assets/icons/fire_streak_icon.png',   // 👈 percorso dell’immagine
+            width: 60,
+            height: 60,
+            fit: BoxFit.contain,
+          ),
+        ],
       ),
     );
   }
@@ -1153,22 +1147,21 @@ class _HabitGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final twoColumns = constraints.maxWidth > 380;
-        final itemWidth = twoColumns
-            ? (constraints.maxWidth - 16) / 2
-            : constraints.maxWidth;
+        final itemWidth = (constraints.maxWidth - 16) / 2;
 
         return Wrap(
           spacing: 16,
           runSpacing: 16,
-          children: tasks
-              .map(
-                (task) => SizedBox(
-                  width: itemWidth,
-                  child: _HabitCard(task: task, onTap: onTaskTap),
-                ),
-              )
-              .toList(),
+          children: tasks.map((task) {
+            return SizedBox(
+              width: itemWidth,
+              height: itemWidth, // 👈 card quadrata
+              child: _HabitCard(
+                task: task,
+                onTap: onTaskTap,
+              ),
+            );
+          }).toList(),
         );
       },
     );
@@ -1183,69 +1176,91 @@ class _HabitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isCompleted = task.isCompleted;
-    final background = isCompleted
-        ? Color.alphaBlend(Colors.white.withValues(alpha: 0.55), task.cardColor)
-        : task.cardColor;
-    final textColor = isCompleted
-        ? task.textColor.withValues(alpha: 0.6)
-        : task.textColor;
+    final bool isCompleted = task.isCompleted;
+
+    // colori
+    final Color inactiveBase = const Color(0xFFD6D6D6);
+    final Color activeBase = const Color(0xFF63DE77);
+    final Color inactiveTitle = const Color(0xFF8B8B8B);
+    final Color activeTitle = const Color(0xFF5CD16A);
+
+    final Color baseColor = isCompleted ? activeBase : inactiveBase;
+    final Color titleColor = isCompleted ? activeTitle : inactiveTitle;
 
     return GestureDetector(
       onTap: () => onTap(task.id),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 26),
+        duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: background,
+          color: baseColor,
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 10,
-              offset: const Offset(0, 8),
+              offset: const Offset(0, 6),
             ),
           ],
         ),
+        // importantissimo: riempi e poi gestisci lo spazio dentro
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    task.title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: textColor,
-                      letterSpacing: 1,
-                    ),
+            const SizedBox(height: 8),
+
+            // rettangolino titolo
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+              decoration: BoxDecoration(
+                color: titleColor,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Center(
+                child: Text(
+                  task.title.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 1.1,
+                    fontSize: 14,
                   ),
                 ),
-                AnimatedOpacity(
-                  opacity: isCompleted ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              task.description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: textColor.withValues(alpha: isCompleted ? 0.7 : 0.9),
-                height: 1.4,
+
+            // questo Expanded prende lo spazio che resta e NON fa sforare
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Center(
+                  child: Text(
+                    task.description.replaceAll('\n', ' '),
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // icona in basso SEMPRE visibile
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Image.asset(
+                isCompleted
+                    ? 'assets/icons/task_done_icon.png'
+                    : 'assets/icons/task_not_done_icon.png',
+                width: 38,
+                height: 38,
+                fit: BoxFit.contain,
               ),
             ),
           ],
