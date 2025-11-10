@@ -98,7 +98,6 @@ def create_indexes(db: Optional[Database]) -> None:
     _ensure_index(users, [("username", ASCENDING)], unique=True, name="users_index2")
     _ensure_index(tasks, [("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
     _ensure_index(sessions, [("token", ASCENDING)], unique=True, name="sessions_index")
-    _ensure_index(leaderboard, [("_id", ASCENDING)], unique=True, name="leaderboard_index")
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     '''
