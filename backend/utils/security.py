@@ -11,6 +11,9 @@ SCRYPT_N = 2**14  # CPU/memory cost factor
 SCRYPT_R = 8      # block size
 SCRYPT_P = 8      # parallelization factor
 
+def generate_token() -> str:
+    return secrets.token_urlsafe(48) # 256-bit+ token, URL-safe
+
 def hash_password(password: str) -> str:
     if not check_register_password(password):
         raise ValueError("Too weak password")

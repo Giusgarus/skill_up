@@ -1,12 +1,16 @@
-from pymongo import MongoClient, PyMongoError
 from typing import Optional
+from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.collection import Collection
-from pymongo import ASCENDING, DESCENDING
-import db.client as client
-from pymongo.collection import Collection
-from pymongo import ASCENDING, DESCENDING
-import utility
+from pymongo.errors import PyMongoError
+from backend.db import client, utility
+
+def _ensure_index(collection: Collection, keys: list[tuple[str, int]], **kwargs) -> None:
+    existing = collection.index_information()
+    for info in existing.values():
+        if info.get("key") == keys:
+            return
+    collection.create_index(keys, **kwargs)
 
 def connect_to_db() -> Database:
     if not client.ping():
@@ -74,7 +78,7 @@ def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> l
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_one_and_update(table_name: str, keys_dict: dict = {}, values_dict: dict, return_policy, projection: dict = None) -> list:
+def find_one_and_update(table_name: str, values_dict: dict, return_policy, keys_dict: dict = {}, projection: dict = None) -> list:
     db = connect_to_db()
     try:
         proj = db[table_name].find_one_and_update(filter = keys_dict, update = values_dict, projection = projection, return_document = return_policy)
@@ -85,12 +89,16 @@ def find_one_and_update(table_name: str, keys_dict: dict = {}, values_dict: dict
 def create_indexes(db: Optional[Database]) -> None:
     if db is None:
         return
-    db["users"].create_index([("user_id", ASCENDING)], unique=True, name="users_index1")
-    db["users"].create_index([("username", ASCENDING)], unique=True, name="users_index2")
-    db["tasks"].create_index([("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
-    db["sessions"].create_index([("token", ASCENDING)], unique=True, name="sessions_index")
-    db["leaderboard"].create_index([("username", ASCENDING)], unique = True, name="leaderboard_index")
-    db["leaderboard"].create_index([("score", DESCENDING), ("username", ASCENDING)])
+    users = db["users"]
+    tasks = db["tasks"]
+    sessions = db["sessions"]
+    leaderboard = db["leaderboard"]
+
+    _ensure_index(users, [("user_id", ASCENDING)], unique=True, name="users_index1")
+    _ensure_index(users, [("username", ASCENDING)], unique=True, name="users_index2")
+    _ensure_index(tasks, [("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
+    _ensure_index(sessions, [("token", ASCENDING)], unique=True, name="sessions_index")
+    _ensure_index(leaderboard, [("_id", ASCENDING)], unique=True, name="leaderboard_index")
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     '''

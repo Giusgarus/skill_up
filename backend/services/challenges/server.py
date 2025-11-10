@@ -62,7 +62,8 @@ def task_done(payload: SetTaskDone) -> dict:
         projection = {"_id": False, "username": True, "data.score": True}, 
         return_policy = ReturnDocument.AFTER
     )
-    new_score = proj_user_data["score"] if proj_user_data else None
+    data_projection = proj_user_data.get("data") if proj_user_data else {}
+    new_score = (data_projection or {}).get("score")
     username = proj_user_data["username"] if proj_user_data else None
     if new_score is None or not username:
         raise HTTPException(status_code = 403, detail = "Invalid projection after updating user")

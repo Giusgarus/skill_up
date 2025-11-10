@@ -1,9 +1,9 @@
 
 table_primary_keys_dict = {
-    "users": ["user_id", "username"],
+    "users": ["user_id"],
     "tasks": ["task_id", "user_id"],
     "sessions": ["token"],
-    "leaderboard": ["username"],
+    "leaderboard": ["_id"],
 }
 
 def check_primary_keys(table_name: str, record: dict):

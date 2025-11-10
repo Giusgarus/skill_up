@@ -1,12 +1,8 @@
-import secrets
 from fastapi import HTTPException
 from pymongo import errors as pymongo_errors  # type: ignore
 import backend.db.database as db
 import backend.utils.security as security
 import backend.utils.timing as timing
-
-def generate_token() -> str:
-    return secrets.token_urlsafe(48) # 256-bit+ token, URL-safe
 
 def verify_session(token: str) -> tuple[bool, str]:
     session = db.find_one(
