@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:skill_up/shared/network/backend_config.dart';
 
 import '../../utils/password_validator.dart';
 
@@ -10,16 +11,16 @@ import '../../utils/password_validator.dart';
 class AuthApi {
   AuthApi({
     http.Client? client,
-    this.baseUrl = _defaultBaseUrl,
+    String? baseUrl,
     Duration? requestTimeout,
   })  : _client = client ?? http.Client(),
+        baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl(),
         _requestTimeout = requestTimeout ?? _defaultRequestTimeout;
 
   final http.Client _client;
   final String baseUrl;
   final Duration _requestTimeout;
 
-  static const _defaultBaseUrl = 'http://127.0.0.1:8000';
   static const _defaultRequestTimeout = Duration(seconds: 6);
 
   Uri get _registerUri => Uri.parse(baseUrl).resolve('/auth/register');

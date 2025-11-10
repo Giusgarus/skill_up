@@ -4,14 +4,15 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:skill_up/shared/network/backend_config.dart';
+
 /// Lightweight client that registers Firebase device tokens with the backend.
 class NotificationApi {
   NotificationApi({
     http.Client? client,
-    this.baseUrl = _defaultBaseUrl,
-  }) : _client = client ?? http.Client();
-
-  static const String _defaultBaseUrl = 'http://127.0.0.1:8000';
+    String? baseUrl,
+  })  : _client = client ?? http.Client(),
+        baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl();
 
   final http.Client _client;
   final String baseUrl;

@@ -2,15 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:skill_up/shared/network/backend_config.dart';
 
 class ProfileApi {
-  ProfileApi({http.Client? client, this.baseUrl = _defaultBaseUrl})
-    : _client = client ?? http.Client();
+  ProfileApi({http.Client? client, String? baseUrl})
+    : _client = client ?? http.Client(),
+      baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl();
 
   final http.Client _client;
   final String baseUrl;
-
-  static const _defaultBaseUrl = 'http://127.0.0.1:8000';
 
   Uri get _profilePicUri => Uri.parse(baseUrl).resolve('/set/profile_pic');
   Uri _fieldUri(String field) => Uri.parse(baseUrl).resolve('/set/$field');

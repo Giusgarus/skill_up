@@ -7,6 +7,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../features/auth/data/services/auth_api.dart';
 import 'notification_api.dart';
 
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse notificationResponse) {
+  NotificationService.instance
+      .handleBackgroundNotificationResponse(notificationResponse);
+}
+
 /// Centralizes Firebase Cloud Messaging setup and server registration.
 class NotificationService {
   NotificationService._();
@@ -43,7 +49,7 @@ class NotificationService {
       await _localNotifications.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (_) {},
-        onDidReceiveBackgroundNotificationResponse: (_) {},
+        onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
       );
       final androidPlugin = _localNotifications
           .resolvePlatformSpecificImplementation<
@@ -124,6 +130,18 @@ class NotificationService {
     // Currently no deep-linking requirements. Keep hook for future use.
     if (kDebugMode) {
       debugPrint('Notification opened: ${message.messageId}');
+    }
+  }
+
+  void handleBackgroundNotificationResponse(
+    NotificationResponse notificationResponse,
+  ) {
+    if (kDebugMode) {
+      debugPrint(
+        'Background notification tapped: '
+        '${notificationResponse.notificationResponseType} '
+        '${notificationResponse.payload}',
+      );
     }
   }
 
