@@ -17,7 +17,6 @@ import 'package:skill_up/features/profile/presentation/pages/user_info_page.dart
 import 'package:skill_up/features/settings/presentation/pages/settings_page.dart';
 import 'package:skill_up/shared/notifications/notification_service.dart';
 
-
 class DailyTask {
   const DailyTask({
     required this.id,
@@ -133,7 +132,10 @@ class _HomePageState extends State<HomePage> {
 
   Map<DateTime, int?> _seedMonthlyCompletedTasks() {
     final monthStart = DateTime(_today.year, _today.month);
-    final daysInMonth = DateUtils.getDaysInMonth(monthStart.year, monthStart.month);
+    final daysInMonth = DateUtils.getDaysInMonth(
+      monthStart.year,
+      monthStart.month,
+    );
     final map = <DateTime, int?>{};
     for (var day = 1; day <= daysInMonth; day++) {
       final date = DateTime(monthStart.year, monthStart.month, day);
@@ -180,7 +182,10 @@ class _HomePageState extends State<HomePage> {
       });
       return;
     }
-    final stored = await _taskCompletionStorage.loadMonth(_today, session.username);
+    final stored = await _taskCompletionStorage.loadMonth(
+      _today,
+      session.username,
+    );
     if (!mounted || stored.isEmpty) {
       return;
     }
@@ -191,8 +196,7 @@ class _HomePageState extends State<HomePage> {
         final taskMap = Map<String, bool>.from(tasks);
         _taskStatusesByDay[normalized] = taskMap;
         if (!normalized.isAfter(_today)) {
-          final completedCount =
-              taskMap.values.where((value) => value).length;
+          final completedCount = taskMap.values.where((value) => value).length;
           _completedTasksByDay[normalized] = completedCount;
         }
       });
@@ -291,9 +295,7 @@ class _HomePageState extends State<HomePage> {
     }
     if (!_notificationsRegistered) {
       _notificationsRegistered = true;
-      unawaited(
-        NotificationService.instance.registerSession(activeSession),
-      );
+      unawaited(NotificationService.instance.registerSession(activeSession));
     }
   }
 
@@ -311,11 +313,7 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) {
       return;
     }
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      LoginPage.route,
-      (_) => false,
-    );
+    Navigator.pushNamedAndRemoveUntil(context, LoginPage.route, (_) => false);
   }
 
   Future<void> _showServerLogoutDialog(String message) async {
@@ -341,37 +339,37 @@ class _HomePageState extends State<HomePage> {
   List<DailyTask> _seedTasks() {
     return const [
       DailyTask(
-        id: 'drink-water',
+        id: '1',
         title: 'DRINK MORE',
         description: 'You have to drink\n2 liters of water today',
         cardColor: Color(0xFFE0E0E0),
       ),
       DailyTask(
-        id: 'walking',
+        id: '2',
         title: 'WALKING',
         description: 'Go outside and\nmake 30 minutes of walking',
         cardColor: Color(0xFF5DE27C),
       ),
       DailyTask(
-        id: 'stretching',
+        id: '3',
         title: 'STRETCHING',
         description: 'Stretch your body\nfor at least 10 minutes',
         cardColor: Color(0xFFF1D16A),
       ),
       DailyTask(
-        id: 'stretching2',
+        id: '4',
         title: 'STRETCHING2',
         description: 'Stretch your body\nfor at least 10 minutes',
         cardColor: Color(0xFFF1D16A),
       ),
       DailyTask(
-        id: 'stretching3',
+        id: '5',
         title: 'STRETCHING3',
         description: 'Stretch your body\nfor at least 10 minutes',
         cardColor: Color(0xFFF1D16A),
       ),
       DailyTask(
-        id: 'stretching4',
+        id: '6',
         title: 'STRETCHING4',
         description: 'Stretch your body\nfor at least 10 minutes',
         cardColor: Color(0xFFF1D16A),
@@ -383,11 +381,7 @@ class _HomePageState extends State<HomePage> {
     final normalized = dateOnly(day);
     final statuses = _taskStatusesByDay[normalized];
     return _taskCatalog
-        .map(
-          (task) => task.copyWith(
-            isCompleted: statuses?[task.id] ?? false,
-          ),
-        )
+        .map((task) => task.copyWith(isCompleted: statuses?[task.id] ?? false))
         .toList();
   }
 
@@ -453,15 +447,13 @@ class _HomePageState extends State<HomePage> {
 
     DailyTask? toggledTask;
     setState(() {
-      _tasks = _tasks
-          .map((task) {
-            if (task.id == id) {
-              toggledTask = task.copyWith(isCompleted: !task.isCompleted);
-              return toggledTask!;
-            }
-            return task;
-          })
-          .toList();
+      _tasks = _tasks.map((task) {
+        if (task.id == id) {
+          toggledTask = task.copyWith(isCompleted: !task.isCompleted);
+          return toggledTask!;
+        }
+        return task;
+      }).toList();
       final updatedStatuses = Map<String, bool>.from(
         _taskStatusesByDay[normalizedDay] ?? <String, bool>{},
       );
@@ -470,8 +462,9 @@ class _HomePageState extends State<HomePage> {
       }
       _taskStatusesByDay[normalizedDay] = updatedStatuses;
 
-      final completedCount =
-          updatedStatuses.values.where((value) => value).length;
+      final completedCount = updatedStatuses.values
+          .where((value) => value)
+          .length;
       _completedTasksByDay[normalizedDay] = completedCount;
       final medal = medalForProgress(
         completed: completedCount,
@@ -514,7 +507,22 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      await _taskApi.markTaskDone(token: session.token, taskId: taskId);
+      final result = await _taskApi.markTaskDone(
+        token: session.token,
+        taskId: taskId,
+      );
+      if (!result.isSuccess && mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                result.errorMessage ?? 'Unable to sync task status.',
+              ),
+              duration: const Duration(milliseconds: 1400),
+            ),
+          );
+      }
     } catch (_) {
       if (!mounted) {
         return;
@@ -730,11 +738,8 @@ class _Header extends StatelessWidget {
 }
 
 class _RoundedIconButton extends StatelessWidget {
-  const _RoundedIconButton({
-    required this.onTap,
-    this.asset,
-    this.image,
-  }) : assert(asset != null || image != null);
+  const _RoundedIconButton({required this.onTap, this.asset, this.image})
+    : assert(asset != null || image != null);
 
   final String? asset;
   final ImageProvider? image;
@@ -767,28 +772,25 @@ class _RoundedIconButton extends StatelessWidget {
               ),
             ],
             image: image != null
-                ? DecorationImage(
-                    image: image!,
-                    fit: BoxFit.cover,
-                  )
+                ? DecorationImage(image: image!, fit: BoxFit.cover)
                 : null,
           ),
           alignment: Alignment.center,
           child: image != null
               ? null
               : (isSvg
-                  ? SvgPicture.asset(
-                      asset!,
-                      width: 32,
-                      height: 32,
-                      allowDrawingOutsideViewBox: true,
-                    )
-                  : Image.asset(
-                      asset!,
-                      width: 32,
-                      height: 32,
-                      fit: BoxFit.contain,
-                    )),
+                    ? SvgPicture.asset(
+                        asset!,
+                        width: 32,
+                        height: 32,
+                        allowDrawingOutsideViewBox: true,
+                      )
+                    : Image.asset(
+                        asset!,
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.contain,
+                      )),
         ),
       ),
     );

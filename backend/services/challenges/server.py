@@ -11,7 +11,7 @@ from pymongo import ReturnDocument
 MIN_HEAP_K_LEADER = 10
 ALLOWED_DATA_FIELDS: Set[str] = {"score", "name", "surname", "height", "weight", "sex", "info1", "info2", "info3", "info4", "profile_pic"}
 MIN_LEN_ADF = 1
-MAX_LEN_ADF = 500
+MAX_LEN_ADF = 200000
 
 
 RecordStr = Annotated[
@@ -20,7 +20,7 @@ RecordStr = Annotated[
         strip_whitespace = True,
         min_length = MIN_LEN_ADF,
         max_length = MAX_LEN_ADF,
-        pattern = r"^[A-Za-z0-9_]+$",
+        pattern = r"^[\x20-\x7E]+$",
     ),
 ]
 class UpdateUserBody(BaseModel):
@@ -38,7 +38,7 @@ class GeneratePlan(BaseModel):
 
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
-@router.post("/task_done", status_code = 201)
+@router.post("/task_done", status_code = 200)
 def task_done(payload: SetTaskDone) -> dict:
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
@@ -84,7 +84,7 @@ def task_done(payload: SetTaskDone) -> dict:
     )
     return {"status" : True}
 
-@router.post("/set", status_code = 201)
+@router.post("/set", status_code = 200)
 def update_user(payload: UpdateUserBody):
     valid_token, user_id = session.verify_session(payload.token)
     if not valid_token:
@@ -99,7 +99,7 @@ def update_user(payload: UpdateUserBody):
         raise HTTPException(status_code = 403, detail = "Database error")
     return {"updated": True, "new_record": payload.record}
 
-@router.get("/prompt", status_code = 201)
+@router.get("/prompt", status_code = 200)
 def get_llm_response(payload: GeneratePlan) -> dict:
     token = payload.token
     prompt = payload.plan

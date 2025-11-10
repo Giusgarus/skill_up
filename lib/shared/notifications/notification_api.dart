@@ -8,24 +8,32 @@ import 'package:skill_up/shared/network/backend_config.dart';
 
 /// Lightweight client that registers Firebase device tokens with the backend.
 class NotificationApi {
-  NotificationApi({
-    http.Client? client,
-    String? baseUrl,
-  })  : _client = client ?? http.Client(),
-        baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl();
+  NotificationApi({http.Client? client, String? baseUrl})
+    : _client = client ?? http.Client(),
+      baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl();
 
   final http.Client _client;
   final String baseUrl;
 
-  Uri get _registerUri => Uri.parse(baseUrl).resolve('/notifications/device');
+  Uri get _registerUri =>
+      Uri.parse(baseUrl).resolve('/services/notifications/device');
 
   Future<bool> registerDevice({
     required String username,
     required String sessionToken,
     required String deviceToken,
     required String platform,
+    String? userId,
   }) async {
+    final normalizedUserId = userId?.trim();
+    if (normalizedUserId == null || normalizedUserId.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('Skipping device registration: missing user id.');
+      }
+      return false;
+    }
     final payload = <String, dynamic>{
+      'user_id': normalizedUserId,
       'username': username,
       'session_token': sessionToken,
       'device_token': deviceToken,

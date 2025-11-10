@@ -12,6 +12,7 @@ class AuthSessionStorage {
 
   static const _tokenKey = 'auth_token';
   static const _usernameKey = 'auth_username';
+  static const _userIdKey = 'auth_user_id';
   static bool _secureStorageDisabled = false;
   static bool _secureFailureLogged = false;
   final FlutterSecureStorage _secureStorage;
@@ -36,6 +37,11 @@ class AuthSessionStorage {
       await prefs.setString(_tokenKey, session.token);
     }
     await prefs.setString(_usernameKey, session.username);
+    if (session.userId != null) {
+      await prefs.setString(_userIdKey, session.userId!);
+    } else {
+      await prefs.remove(_userIdKey);
+    }
   }
 
   /// Load a previously stored session, if present.
@@ -76,7 +82,8 @@ class AuthSessionStorage {
     if (token == null || username == null) {
       return null;
     }
-    return AuthSession(token: token, username: username);
+    final userId = prefs.getString(_userIdKey);
+    return AuthSession(token: token, username: username, userId: userId);
   }
 
   /// Remove any persisted session when logging out.
@@ -93,6 +100,7 @@ class AuthSessionStorage {
     }
     await prefs.remove(_tokenKey);
     await prefs.remove(_usernameKey);
+    await prefs.remove(_userIdKey);
   }
 
   void _handleSecureFailure(

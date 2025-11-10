@@ -26,7 +26,7 @@ class CheckBearer(BaseModel):
 
 router = APIRouter(prefix="/services/auth", tags=["auth"])
 
-@router.post("/register", status_code=201)
+@router.post("/register", status_code = 200)
 def register(payload: RegisterInput) -> dict:
     username = payload.username.strip()
     password = payload.password
@@ -62,7 +62,7 @@ def register(payload: RegisterInput) -> dict:
     token = session.generate_session(record["user_id"])
     return {"token": token, "username": username}
 
-@router.post("/login", status_code=201)
+@router.post("/login", status_code = 200)
 def login(payload: LoginInput) -> dict:
     username = payload.username.strip()
     password = payload.password
@@ -79,7 +79,7 @@ def login(payload: LoginInput) -> dict:
     except:
         return {"valid" : False}
 
-@router.post("/check_bearer", status_code=201)
+@router.post("/check_bearer", status_code = 200)
 def validate_bearer(payload: CheckBearer) -> dict:
     token = payload.token
     username = payload.username

@@ -9,13 +9,10 @@ import '../../utils/password_validator.dart';
 
 /// Thin wrapper around http client to keep API calls isolated from widgets.
 class AuthApi {
-  AuthApi({
-    http.Client? client,
-    String? baseUrl,
-    Duration? requestTimeout,
-  })  : _client = client ?? http.Client(),
-        baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl(),
-        _requestTimeout = requestTimeout ?? _defaultRequestTimeout;
+  AuthApi({http.Client? client, String? baseUrl, Duration? requestTimeout})
+    : _client = client ?? http.Client(),
+      baseUrl = baseUrl ?? BackendConfig.defaultBaseUrl(),
+      _requestTimeout = requestTimeout ?? _defaultRequestTimeout;
 
   final http.Client _client;
   final String baseUrl;
@@ -23,9 +20,10 @@ class AuthApi {
 
   static const _defaultRequestTimeout = Duration(seconds: 6);
 
-  Uri get _registerUri => Uri.parse(baseUrl).resolve('/auth/register');
-  Uri get _loginUri => Uri.parse(baseUrl).resolve('/auth/login');
-  Uri get _checkBearerUri => Uri.parse(baseUrl).resolve('/auth/check_bearer');
+  Uri get _registerUri => Uri.parse(baseUrl).resolve('/services/auth/register');
+  Uri get _loginUri => Uri.parse(baseUrl).resolve('/services/auth/login');
+  Uri get _checkBearerUri =>
+      Uri.parse(baseUrl).resolve('/services/auth/check_bearer');
 
   Future<AuthResult> register({
     required String username,
@@ -56,9 +54,7 @@ class AuthApi {
         'Unable to reach the server. Please retry.',
       );
     } on TimeoutException catch (_) {
-      return const AuthResult.error(
-        'Request timed out. Please retry.',
-      );
+      return const AuthResult.error('Request timed out. Please retry.');
     } on FormatException catch (_) {
       return const AuthResult.error('Malformed server response.');
     } catch (error, stackTrace) {
@@ -187,7 +183,7 @@ class AuthApi {
       }
     }
 
-    final isSuccess = response.statusCode == 201;
+    final isSuccess = response.statusCode == 200;
     if (isSuccess) {
       final token = body?['token'] as String?;
       final responseUsername = body?['username'] as String?;
@@ -198,8 +194,13 @@ class AuthApi {
           : responseUsername!.trim();
 
       AuthSession? session;
+      final userId = body?['user_id'] as String?;
       if (token != null && resolvedUsername != null) {
-        session = AuthSession(token: token, username: resolvedUsername);
+        session = AuthSession(
+          token: token,
+          username: resolvedUsername,
+          userId: userId,
+        );
       }
 
       return AuthResult.success(
@@ -229,13 +230,14 @@ class AuthApi {
       }
     }
 
-    final isSuccess = response.statusCode == 201;
+    final isSuccess = response.statusCode == 200;
     if (isSuccess) {
       final token = body?['token'] as String?;
       final username = body?['username'] as String?;
+      final userId = body?['user_id'] as String?;
       if (token != null && username != null) {
         return LoginResult.success(
-          AuthSession(token: token, username: username),
+          AuthSession(token: token, username: username, userId: userId),
         );
       }
       return const LoginResult.error('Incomplete response from server.');

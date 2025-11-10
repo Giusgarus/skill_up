@@ -12,20 +12,25 @@ class TaskApi {
   final http.Client _client;
   final String baseUrl;
 
-  Uri get _taskDoneUri => Uri.parse(baseUrl).resolve('/task/done');
+  Uri get _taskDoneUri =>
+      Uri.parse(baseUrl).resolve('/services/challenges/task_done');
 
   Future<TaskApiResult> markTaskDone({
     required String token,
     required String taskId,
   }) async {
-    final payload = jsonEncode({'token': token, 'id_task': taskId});
+    final parsedTaskId = int.tryParse(taskId);
+    if (parsedTaskId == null) {
+      return const TaskApiResult.error('Invalid task identifier.');
+    }
+    final payload = jsonEncode({'token': token, 'task_id': parsedTaskId});
     try {
       final response = await _client.post(
         _taskDoneUri,
         headers: const {'Content-Type': 'application/json'},
         body: payload,
       );
-      if (response.statusCode == 201) {
+      if (response.statusCode == 200) {
         return const TaskApiResult.success();
       }
       return TaskApiResult.error(

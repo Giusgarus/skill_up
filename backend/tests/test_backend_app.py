@@ -61,7 +61,7 @@ def register_user(client: TestClient, username: str, password: str = "ValidPass1
         "/services/auth/register",
         json={"username": username, "password": password, "email": f"{username}@example.com"},
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 200, response.text
     return response.json()
 
 
@@ -85,7 +85,7 @@ def test_register_login_and_check_bearer(backend_app):
     login_response = client.post(
         "/services/auth/login", json={"username": username, "password": "ValidPass1!"}
     )
-    assert login_response.status_code == 201, login_response.text
+    assert login_response.status_code == 200, login_response.text
     login_body = login_response.json()
     assert login_body["username"] == username
     assert login_body["token"] != register_payload["token"]
@@ -94,7 +94,7 @@ def test_register_login_and_check_bearer(backend_app):
     bearer_response = client.post(
         "/services/auth/check_bearer", json={"username": username, "token": login_body["token"]}
     )
-    assert bearer_response.status_code == 201
+    assert bearer_response.status_code == 200
     assert bearer_response.json() == {"valid": True, "username": username}
 
 
@@ -103,7 +103,7 @@ def test_duplicate_registration_fails(backend_app):
     payload = {"username": "taken_user", "password": "ValidPass1!", "email": "taken@example.com"}
 
     first = client.post("/services/auth/register", json=payload)
-    assert first.status_code == 201
+    assert first.status_code == 200
 
     duplicate = client.post("/services/auth/register", json=payload)
     assert duplicate.status_code == 401
@@ -136,8 +136,8 @@ def test_multiple_logins_issue_unique_tokens(backend_app):
 
     first_login = client.post("/services/auth/login", json={"username": username, "password": password})
     second_login = client.post("/services/auth/login", json={"username": username, "password": password})
-    assert first_login.status_code == 201
-    assert second_login.status_code == 201
+    assert first_login.status_code == 200
+    assert second_login.status_code == 200
 
     token_one = first_login.json()["token"]
     token_two = second_login.json()["token"]
@@ -179,7 +179,7 @@ def test_update_user_respects_allowed_fields(backend_app):
     update_response = client.post(
         "/services/challenges/set", json={"token": token, "attribute": "name", "record": "Ada"}
     )
-    assert update_response.status_code == 201
+    assert update_response.status_code == 200
     updated_user = db["users"].find_one({"username": username})
     assert updated_user["data"]["name"] == "Ada"
 
@@ -190,14 +190,22 @@ def test_update_user_respects_allowed_fields(backend_app):
     assert invalid_response.status_code == 401
 
 
-def test_update_user_rejects_invalid_characters(backend_app):
+def test_update_user_accepts_spaces_and_symbols(backend_app):
     client = backend_app["client"]
+    db = backend_app["db"]
     token = register_user(client, "invalid_chars")["token"]
+    payload = {
+        "token": token,
+        "attribute": "name",
+        "record": "Ada Smith! #1",
+    }
     response = client.post(
         "/services/challenges/set",
-        json={"token": token, "attribute": "name", "record": "Ada Smith"},
+        json=payload,
     )
-    assert response.status_code == 422
+    assert response.status_code == 200, response.json()
+    stored = db["users"].find_one({"username": "invalid_chars"})
+    assert stored["data"]["name"] == "Ada Smith! #1"
 
 
 def test_update_user_rejects_invalid_token(backend_app):
@@ -220,7 +228,7 @@ def test_task_done_updates_score_and_leaderboard(backend_app):
     seed_task(db, user_doc["user_id"], task_id=1, score=score_value)
 
     response = client.post("/services/challenges/task_done", json={"token": token, "task_id": 1})
-    assert response.status_code == 201
+    assert response.status_code == 200
     assert response.json() == {"status": True}
 
     updated_user = db["users"].find_one({"username": username})
@@ -264,17 +272,17 @@ def test_leaderboard_endpoint_returns_sorted_scores(backend_app):
     token_low = register_user(client, "alpha")["token"]
     user_low = db["users"].find_one({"username": "alpha"})
     seed_task(db, user_low["user_id"], task_id=10, score=15)
-    assert client.post("/services/challenges/task_done", json={"token": token_low, "task_id": 10}).status_code == 201
+    assert client.post("/services/challenges/task_done", json={"token": token_low, "task_id": 10}).status_code == 200
 
     token_high = register_user(client, "beta")["token"]
     user_high = db["users"].find_one({"username": "beta"})
     seed_task(db, user_high["user_id"], task_id=11, score=80)
-    assert client.post("/services/challenges/task_done", json={"token": token_high, "task_id": 11}).status_code == 201
+    assert client.post("/services/challenges/task_done", json={"token": token_high, "task_id": 11}).status_code == 200
 
     leaderboard_response = client.post(
         "/services/gamification/leaderboard", json={"token": token_low}
     )
-    assert leaderboard_response.status_code == 201
+    assert leaderboard_response.status_code == 200
     items = leaderboard_response.json()["leaderboard"]
     ordered = sorted(items, key=lambda entry: (-entry["score"], entry["username"]))
     assert ordered == [{"username": "beta", "score": 80}, {"username": "alpha", "score": 15}]
@@ -293,7 +301,7 @@ def test_leaderboard_trims_to_top_k(backend_app):
         seed_task(db, user_doc["user_id"], task_id=200 + idx, score=score)
         assert client.post(
             "/services/challenges/task_done", json={"token": token, "task_id": 200 + idx}
-        ).status_code == 201
+        ).status_code == 200
 
     leaderboard = db["leaderboard"].find_one({"_id": "topK"})
     assert len(leaderboard["items"]) == 10
@@ -322,7 +330,7 @@ def test_prompt_endpoint_forwards_payload_to_llm(backend_app):
         "/services/challenges/prompt",
         json={"token": token, "plan": "Build a weekly study habit"},
     )
-    assert response.status_code == 201
+    assert response.status_code == 200
     assert response.json() == {}
     assert len(llm_calls) == 1
     assert llm_calls[0]["prompt"] == "Build a weekly study habit"

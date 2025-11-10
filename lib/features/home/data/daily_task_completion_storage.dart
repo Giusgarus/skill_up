@@ -12,6 +12,14 @@ class DailyTaskCompletionStorage {
       DailyTaskCompletionStorage._();
 
   static const _storageKey = 'daily_task_completion_v1';
+  static const Map<String, String> _legacyTaskIdMap = {
+    'drink-water': '1',
+    'walking': '2',
+    'stretching': '3',
+    'stretching2': '4',
+    'stretching3': '5',
+    'stretching4': '6',
+  };
 
   Future<Map<String, dynamic>> _readRaw() async {
     final prefs = await SharedPreferences.getInstance();
@@ -25,9 +33,7 @@ class DailyTaskCompletionStorage {
         return decoded;
       }
       if (decoded is Map) {
-        return decoded.map(
-          (key, value) => MapEntry(key.toString(), value),
-        );
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
       }
       return <String, dynamic>{};
     } catch (_) {
@@ -52,38 +58,31 @@ class DailyTaskCompletionStorage {
     if (value is Map) {
       value.forEach((key, dynamic val) {
         final taskId = key.toString();
+        final normalizedId = _legacyTaskIdMap[taskId] ?? taskId;
         if (val is bool) {
-          result[taskId] = val;
+          result[normalizedId] = val;
         } else if (val is num) {
-          result[taskId] = val != 0;
+          result[normalizedId] = val != 0;
         } else if (val is String) {
-          result[taskId] = val.toLowerCase() == 'true' || val == '1';
+          result[normalizedId] = val.toLowerCase() == 'true' || val == '1';
         }
       });
     }
     return result;
   }
 
-  Map<String, dynamic> _userMap(
-    Map<String, dynamic> root,
-    String username,
-  ) {
+  Map<String, dynamic> _userMap(Map<String, dynamic> root, String username) {
     final rawUser = root[username];
     if (rawUser is Map<String, dynamic>) {
       return rawUser;
     }
     if (rawUser is Map) {
-      return rawUser.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
+      return rawUser.map((key, value) => MapEntry(key.toString(), value));
     }
     return <String, dynamic>{};
   }
 
-  Future<Map<String, bool>> loadForDay(
-    DateTime day,
-    String username,
-  ) async {
+  Future<Map<String, bool>> loadForDay(DateTime day, String username) async {
     final root = await _readRaw();
     final userMap = _userMap(root, username);
     final key = _dayKey(day);
@@ -122,7 +121,8 @@ class DailyTaskCompletionStorage {
     final userMap = _userMap(root, username);
     final key = _dayKey(day);
     final current = _deserializeDay(userMap[key]);
-    current[taskId] = isCompleted;
+    final normalizedId = _legacyTaskIdMap[taskId] ?? taskId;
+    current[normalizedId] = isCompleted;
     userMap[key] = current;
     root[username] = userMap;
     await _writeRaw(root);

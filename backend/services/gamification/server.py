@@ -7,7 +7,7 @@ router = APIRouter(prefix="/services/gamification", tags=["gamification"])
 class GetLeaderboard(BaseModel):
     token: str
 
-@router.post("/leaderboard", status_code = 201)
+@router.post("/leaderboard", status_code = 200)
 def leaderboard_get(payload: GetLeaderboard) -> dict:
     ok, _ = session.verify_session(payload.token)
     if not ok:

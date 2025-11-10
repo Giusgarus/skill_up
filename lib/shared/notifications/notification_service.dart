@@ -9,8 +9,9 @@ import 'notification_api.dart';
 
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse notificationResponse) {
-  NotificationService.instance
-      .handleBackgroundNotificationResponse(notificationResponse);
+  NotificationService.instance.handleBackgroundNotificationResponse(
+    notificationResponse,
+  );
 }
 
 /// Centralizes Firebase Cloud Messaging setup and server registration.
@@ -74,7 +75,8 @@ class NotificationService {
     _tokenRefreshSubscription ??= FirebaseMessaging.instance.onTokenRefresh
         .listen((token) async {
           final activeSession = _activeSession;
-          if (activeSession == null) {
+          final userId = activeSession?.userId;
+          if (activeSession == null || userId == null) {
             return;
           }
           await _api.registerDevice(
@@ -84,6 +86,7 @@ class NotificationService {
             platform: defaultTargetPlatform == TargetPlatform.android
                 ? 'android'
                 : 'unknown',
+            userId: userId,
           );
         });
   }
@@ -92,7 +95,8 @@ class NotificationService {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       final token = await _messaging.getToken();
       final activeSession = _activeSession;
-      if (token == null || activeSession == null) {
+      final userId = activeSession?.userId;
+      if (token == null || activeSession == null || userId == null) {
         return;
       }
       await _api.registerDevice(
@@ -100,6 +104,7 @@ class NotificationService {
         sessionToken: activeSession.token,
         deviceToken: token,
         platform: 'android',
+        userId: userId,
       );
     }
   }
