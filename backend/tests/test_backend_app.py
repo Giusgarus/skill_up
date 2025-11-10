@@ -15,7 +15,9 @@ for path in (PROJECT_ROOT, BACKEND_DIR):
 
 import backend.main as main  # noqa: E402
 from backend.db import client as db_client  # noqa: E402
+from backend.services.authentication import server as auth_server  # noqa: E402
 from backend.services.challenges import server as challenges_server  # noqa: E402
+from email_validator import EmailNotValidError  # noqa: E402
 
 
 @pytest.fixture()
@@ -51,6 +53,23 @@ def backend_app(monkeypatch):
     )
 
     mock_db["leaderboard"].insert_one({"_id": "topK", "items": []})
+
+    class _EmailResult:
+        def __init__(self, email: str):
+            self.email = email
+
+    def fake_validate_email(email: str, check_deliverability: bool = True):
+        normalized = email.strip().lower()
+        if not normalized or "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise EmailNotValidError("Invalid email format")
+        local, domain = normalized.split("@", 1)
+        if not local:
+            raise EmailNotValidError("Invalid email format")
+        if domain == "no-mx.test":
+            raise EmailNotValidError("Domain does not have required MX records")
+        return _EmailResult(normalized)
+
+    monkeypatch.setattr(auth_server, "validate_email", fake_validate_email)
 
     with TestClient(main.app) as client:
         yield {"client": client, "db": mock_db, "llm_calls": llm_calls}
@@ -98,6 +117,69 @@ def test_register_login_and_check_bearer(backend_app):
     assert bearer_response.json() == {"valid": True, "username": username}
 
 
+def test_logout_removes_session_and_invalidates_token(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    username = "logout_user"
+
+    register_user(client, username)
+    login = client.post("/services/auth/login", json={"username": username, "password": "ValidPass1!"})
+    token = login.json()["token"]
+    assert db["sessions"].count_documents({"token": token}) == 1
+
+    logout_response = client.post("/services/auth/logout", json={"username": username, "token": token})
+    assert logout_response.status_code == 200
+    assert logout_response.json() == {"valid": True}
+    assert db["sessions"].count_documents({"token": token}) == 0
+
+    bearer_after_logout = client.post(
+        "/services/auth/check_bearer", json={"username": username, "token": token}
+    )
+    assert bearer_after_logout.status_code == 401
+    assert bearer_after_logout.json()["detail"] == "Invalid or missing token"
+
+    second_logout = client.post("/services/auth/logout", json={"username": username, "token": token})
+    assert second_logout.status_code == 401
+    assert second_logout.json()["detail"] == "Invalid or missing token"
+
+
+def test_logout_rejects_mismatched_username(backend_app):
+    client = backend_app["client"]
+    register_user(client, "logout_owner")
+    token = client.post(
+        "/services/auth/login", json={"username": "logout_owner", "password": "ValidPass1!"}
+    ).json()["token"]
+
+    response = client.post(
+        "/services/auth/logout", json={"username": "someone_else", "token": token}
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Username does not match token owner"
+
+
+def test_logout_requires_username(backend_app):
+    client = backend_app["client"]
+    register_user(client, "blank_username")
+    token = client.post(
+        "/services/auth/login", json={"username": "blank_username", "password": "ValidPass1!"}
+    ).json()["token"]
+
+    response = client.post("/services/auth/logout", json={"username": "   ", "token": token})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Token and username required"
+
+
+def test_logout_rejects_invalid_token(backend_app):
+    client = backend_app["client"]
+    register_user(client, "invalid_token_user")
+
+    response = client.post(
+        "/services/auth/logout", json={"username": "invalid_token_user", "token": "bogus"}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing token"
+
+
 def test_duplicate_registration_fails(backend_app):
     client = backend_app["client"]
     payload = {"username": "taken_user", "password": "ValidPass1!", "email": "taken@example.com"}
@@ -106,7 +188,7 @@ def test_duplicate_registration_fails(backend_app):
     assert first.status_code == 200
 
     duplicate = client.post("/services/auth/register", json=payload)
-    assert duplicate.status_code == 401
+    assert duplicate.status_code == 403
     assert duplicate.json()["detail"] == "User already exists"
 
 
@@ -118,6 +200,38 @@ def test_register_rejects_weak_password(backend_app):
     )
     assert response.status_code == 402
     assert response.json()["detail"] == "Password does not meet complexity requirements"
+
+
+def test_register_rejects_invalid_email_format(backend_app):
+    client = backend_app["client"]
+    response = client.post(
+        "/services/auth/register",
+        json={"username": "bad_email", "password": "ValidPass1!", "email": "not-an-email"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"].startswith("Invalid email")
+
+
+def test_register_rejects_email_without_mx_records(backend_app):
+    client = backend_app["client"]
+    response = client.post(
+        "/services/auth/register",
+        json={"username": "mx_user", "password": "ValidPass1!", "email": "user@no-mx.test"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"].startswith("Invalid email")
+
+
+def test_register_rejects_duplicate_email(backend_app):
+    client = backend_app["client"]
+    payload = {"username": "first_email", "password": "ValidPass1!", "email": "dup@example.com"}
+    response = client.post("/services/auth/register", json=payload)
+    assert response.status_code == 200
+
+    second_payload = {"username": "second_email", "password": "ValidPass1!", "email": "dup@example.com"}
+    dup_response = client.post("/services/auth/register", json=second_payload)
+    assert dup_response.status_code == 404
+    assert dup_response.json()["detail"] == "Email already in use"
 
 
 def test_login_requires_username_and_password(backend_app):

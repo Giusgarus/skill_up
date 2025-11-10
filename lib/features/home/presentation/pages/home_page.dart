@@ -438,10 +438,7 @@ class _HomePageState extends State<HomePage> {
       }
 
       // calcoliamo la medaglia di quel giorno
-      final medal = medalForProgress(
-        completed: completed,
-        total: _totalTasks,
-      );
+      final medal = medalForProgress(completed: completed, total: _totalTasks);
 
       // se non c'è medaglia (none), lo streak si interrompe
       if (medal == MedalType.none) {
@@ -454,7 +451,6 @@ class _HomePageState extends State<HomePage> {
 
     return streak;
   }
-
 
   void _toggleTask(String id) {
     final normalizedDay = dateOnly(_selectedDay);
@@ -966,8 +962,9 @@ class _DailyTasksCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // quante “fasce” devono essere accese (25% ciascuna)
-    final int filledLevels =
-    completionPercent == 0 ? 0 : (completionPercent / 25).ceil();
+    final int filledLevels = completionPercent == 0
+        ? 0
+        : (completionPercent / 25).ceil();
 
     final Color? starTint = medalTintForType(medalType);
 
@@ -999,7 +996,8 @@ class _DailyTasksCard extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Row(
-            mainAxisAlignment: MainAxisAlignment.center, // 🔸 le colonne vicine e centrate
+            mainAxisAlignment:
+                MainAxisAlignment.center, // 🔸 le colonne vicine e centrate
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               // 🔹 Colonna barre
@@ -1018,8 +1016,9 @@ class _DailyTasksCard extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(width: 30), // 🔸 spazio fra le due colonne (modifica se serve)
-
+              const SizedBox(
+                width: 30,
+              ), // 🔸 spazio fra le due colonne (modifica se serve)
               // 🔹 Percentuale + medaglia
               Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -1043,22 +1042,22 @@ class _DailyTasksCard extends StatelessWidget {
                     alignment: Alignment.center,
                     child: medalType == MedalType.none
                         ? SvgPicture.asset(
-                      'assets/icons/blank_star_icon.svg', // 👈 il tuo file SVG vuoto
-                      width: 78,
-                      height: 78,
-                      fit: BoxFit.contain,
-                    )
+                            'assets/icons/blank_star_icon.svg', // 👈 il tuo file SVG vuoto
+                            width: 78,
+                            height: 78,
+                            fit: BoxFit.contain,
+                          )
                         : SizedBox(
-                      width: 78,
-                      height: 78,
-                      child: SvgPicture.asset(
-                        medalAssetForType(medalType),
-                        fit: BoxFit.contain,
-                        colorFilter: starTint != null
-                            ? ColorFilter.mode(starTint, BlendMode.srcIn)
-                            : null,
-                      ),
-                    ),
+                            width: 78,
+                            height: 78,
+                            child: SvgPicture.asset(
+                              medalAssetForType(medalType),
+                              fit: BoxFit.contain,
+                              colorFilter: starTint != null
+                                  ? ColorFilter.mode(starTint, BlendMode.srcIn)
+                                  : null,
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -1075,22 +1074,76 @@ class _SummaryLevelBar extends StatelessWidget {
 
   final bool isActive;
 
+  static const _fillDuration = Duration(milliseconds: 520);
+  static const _curve = Curves.easeOutCubic;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 120,
       height: 26,
-      decoration: BoxDecoration(
-        color: isActive
-            ? const Color(0xFF63DE77)  // verde più acceso
-            : const Color(0xFFD8D8D8), // grigio come nello screen
-        borderRadius: BorderRadius.circular(8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          children: [
+            // base grigia
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD8D8D8),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            // riempimento animato
+            AnimatedPositioned(
+              duration: _fillDuration,
+              curve: _curve,
+              left: 0,
+              top: 0,
+              bottom: 0,
+              right: isActive ? 0 : 120,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF3BC259), Color(0xFF63DE77)],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            // bagliore bianco per dare l'idea di energia
+            IgnorePointer(
+              child: AnimatedOpacity(
+                duration: _fillDuration,
+                curve: _curve,
+                opacity: isActive ? 0.25 : 0,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.35,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.8),
+                            Colors.white.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
-
 
 class _StreakBanner extends StatelessWidget {
   const _StreakBanner({required this.streakDays});
@@ -1126,7 +1179,7 @@ class _StreakBanner extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Image.asset(
-            'assets/icons/fire_streak_icon.png',   // 👈 percorso dell’immagine
+            'assets/icons/fire_streak_icon.png', // 👈 percorso dell’immagine
             width: 60,
             height: 60,
             fit: BoxFit.contain,
@@ -1156,10 +1209,7 @@ class _HabitGrid extends StatelessWidget {
             return SizedBox(
               width: itemWidth,
               height: itemWidth, // 👈 card quadrata
-              child: _HabitCard(
-                task: task,
-                onTap: onTaskTap,
-              ),
+              child: _HabitCard(task: task, onTap: onTaskTap),
             );
           }).toList(),
         );
@@ -1233,7 +1283,10 @@ class _HabitCard extends StatelessWidget {
             // questo Expanded prende lo spazio che resta e NON fa sforare
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 child: Center(
                   child: Text(
                     task.description.replaceAll('\n', ' '),

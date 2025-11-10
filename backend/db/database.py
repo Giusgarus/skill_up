@@ -60,6 +60,14 @@ def update_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
+def delete(table_name: str, filter: dict = {}):
+    db = connect_to_db()
+    try:
+        cursor = db[table_name].delete_one(filter = filter)
+        return cursor
+    except PyMongoError as e:
+        raise RuntimeError(e)
+
 def find_one(table_name: str, filters: dict = {}, projection: dict = None) -> list:
     db = connect_to_db()
     try:
@@ -96,6 +104,7 @@ def create_indexes(db: Optional[Database]) -> None:
 
     _ensure_index(users, [("user_id", ASCENDING)], unique=True, name="users_index1")
     _ensure_index(users, [("username", ASCENDING)], unique=True, name="users_index2")
+    _ensure_index(users, [("email", ASCENDING)], unique=True, name="users_index3")
     _ensure_index(tasks, [("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
     _ensure_index(sessions, [("token", ASCENDING)], unique=True, name="sessions_index")
 

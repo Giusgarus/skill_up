@@ -1,10 +1,85 @@
 import 'package:flutter/material.dart';
+import 'package:skill_up/features/auth/data/services/auth_api.dart';
+import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
+import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
 
 /// Simple settings page with quick-access actions.
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
   static const route = '/settings';
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  final _authApi = AuthApi();
+  final _sessionStorage = AuthSessionStorage();
+  bool _loggingOut = false;
+
+  @override
+  void dispose() {
+    _authApi.close();
+    super.dispose();
+  }
+
+  Future<void> _handleLogout() async {
+    if (_loggingOut) {
+      return;
+    }
+    setState(() => _loggingOut = true);
+
+    try {
+      final session = await _sessionStorage.readSession();
+      if (!mounted) {
+        return;
+      }
+      if (session == null) {
+        _showError('Nessuna sessione attiva.');
+        return;
+      }
+      final result = await _authApi.logout(
+        username: session.username,
+        token: session.token,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (result.isSuccess) {
+        await _sessionStorage.clearSession();
+        if (!mounted) {
+          return;
+        }
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          LoginPage.route,
+          (_) => false,
+        );
+        return;
+      }
+      _showError(result.errorMessage ?? 'Logout non riuscito, riprova.');
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _showError('Errore inaspettato. Riprova.');
+    } finally {
+      if (mounted) {
+        setState(() => _loggingOut = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +103,14 @@ class SettingsPage extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 18,
+                  ),
                   child: ConstrainedBox(
-                    constraints:
-                        BoxConstraints(minHeight: constraints.maxHeight),
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -63,7 +141,8 @@ class SettingsPage extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 'SETTINGS',
-                                style: titleStyle ??
+                                style:
+                                    titleStyle ??
                                     const TextStyle(
                                       fontSize: 36,
                                       fontWeight: FontWeight.w700,
@@ -97,7 +176,12 @@ class SettingsPage extends StatelessWidget {
                           textStyle: buttonTextStyle,
                           onTap: () {},
                         ),
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 36),
+                        _LogoutButton(
+                          onTap: _handleLogout,
+                          loading: _loggingOut,
+                        ),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
@@ -168,7 +252,8 @@ class _SettingsActionButton extends StatelessWidget {
           child: Center(
             child: Text(
               text,
-              style: textStyle ??
+              style:
+                  textStyle ??
                   const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -176,6 +261,60 @@ class _SettingsActionButton extends StatelessWidget {
                   ),
               textAlign: TextAlign.center,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LogoutButton extends StatelessWidget {
+  const _LogoutButton({required this.onTap, required this.loading});
+
+  final VoidCallback onTap;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Colors.white.withValues(alpha: 0.9);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: loading ? null : onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Ink(
+          height: 62,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE53935),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: borderColor, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Text(
+                    'Logout',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 20,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
           ),
         ),
       ),

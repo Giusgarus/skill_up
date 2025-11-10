@@ -31,6 +31,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _obscurePassword = true;
   PasswordValidationResult _passwordStatus = evaluatePassword('');
   String? _usernameError;
+  String? _emailError;
 
   @override
   void initState() {
@@ -63,7 +64,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _submit() async {
-    setState(() => _usernameError = null);
+    setState(() {
+      _usernameError = null;
+      _emailError = null;
+    });
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
 
@@ -94,12 +98,23 @@ class _RegisterPageState extends State<RegisterPage> {
       final failureMessage =
           result.errorMessage ?? 'Registration failed. Please retry.';
 
-      final isDuplicateUser =
-          !result.isSuccess &&
-          (result.errorMessage?.toLowerCase().contains('already') ?? false);
+      final statusCode = result.statusCode;
+      final isDuplicateUsername =
+          !result.isSuccess && statusCode != null && statusCode == 403;
+      final isDuplicateEmail =
+          !result.isSuccess && statusCode != null && statusCode == 404;
 
-      if (isDuplicateUser) {
-        setState(() => _usernameError = result.errorMessage);
+      if (isDuplicateUsername || isDuplicateEmail) {
+        setState(() {
+          if (isDuplicateUsername) {
+            _usernameError =
+                result.errorMessage ?? 'User already exists. Please login.';
+          }
+          if (isDuplicateEmail) {
+            _emailError =
+                result.errorMessage ?? 'E-mail already in use. Try a new one.';
+          }
+        });
       }
 
       if (result.isSuccess) {
@@ -118,7 +133,7 @@ class _RegisterPageState extends State<RegisterPage> {
         }
 
         messenger.showSnackBar(SnackBar(content: Text(successMessage)));
-      } else if (!isDuplicateUser) {
+      } else if (!isDuplicateUsername && !isDuplicateEmail) {
         messenger.showSnackBar(
           SnackBar(
             content: Text(failureMessage),
@@ -195,6 +210,20 @@ class _RegisterPageState extends State<RegisterPage> {
                 return null;
               },
             ),
+            if (_emailError != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6, left: 18),
+                  child: Text(
+                    _emailError!,
+                    style: TextStyle(
+                      color: Colors.redAccent.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 14),
             const FieldLabel('Put your password:'),
             PillTextField(

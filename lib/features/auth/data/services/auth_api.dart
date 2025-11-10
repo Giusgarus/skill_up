@@ -22,6 +22,7 @@ class AuthApi {
 
   Uri get _registerUri => Uri.parse(baseUrl).resolve('/services/auth/register');
   Uri get _loginUri => Uri.parse(baseUrl).resolve('/services/auth/login');
+  Uri get _logoutUri => Uri.parse(baseUrl).resolve('/services/auth/logout');
   Uri get _checkBearerUri =>
       Uri.parse(baseUrl).resolve('/services/auth/check_bearer');
 
@@ -155,6 +156,66 @@ class AuthApi {
     } catch (error, stackTrace) {
       return BearerCheckResult.error(
         'Unexpected error while validating token.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<LogoutResult> logout({
+    required String username,
+    required String token,
+  }) async {
+    final payload = {'username': username, 'token': token};
+    try {
+      final response = await _post(
+        _logoutUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+      Map<String, dynamic>? body;
+      if (response.body.isNotEmpty) {
+        try {
+          body = jsonDecode(response.body) as Map<String, dynamic>;
+        } catch (_) {
+          // Ignore body parsing errors and fall back to status code messaging.
+        }
+      }
+      if (response.statusCode == 200) {
+        final isValid = body?['valid'] == true;
+        if (isValid) {
+          return const LogoutResult.success();
+        }
+        final message = body?['detail'] ?? body?['error'] ?? body?['message'];
+        return LogoutResult.failure(
+          (message is String ? message : null) ?? 'Logout rejected by server.',
+          statusCode: response.statusCode,
+        );
+      }
+      final message = body?['detail'] ?? body?['error'] ?? body?['message'];
+      return LogoutResult.failure(
+        (message is String ? message : null) ??
+            'Logout failed. (${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    } on SocketException catch (_) {
+      return const LogoutResult.failure(
+        'No internet connection. Please retry.',
+        isConnectivityIssue: true,
+      );
+    } on HttpException catch (_) {
+      return const LogoutResult.failure(
+        'Unable to reach the server. Please retry.',
+        isConnectivityIssue: true,
+      );
+    } on TimeoutException catch (_) {
+      return const LogoutResult.failure(
+        'Request timed out. Please retry.',
+        isConnectivityIssue: true,
+      );
+    } catch (error, stackTrace) {
+      return LogoutResult.failure(
+        'Unexpected error while logging out.',
         error: error,
         stackTrace: stackTrace,
       );
@@ -298,6 +359,41 @@ class AuthSession {
   final String token;
   final String username;
   final String? userId;
+}
+
+class LogoutResult {
+  const LogoutResult._({
+    required this.isSuccess,
+    this.errorMessage,
+    this.statusCode,
+    this.error,
+    this.stackTrace,
+    this.isConnectivityIssue = false,
+  });
+
+  const LogoutResult.success() : this._(isSuccess: true);
+
+  const LogoutResult.failure(
+    String message, {
+    int? statusCode,
+    Object? error,
+    StackTrace? stackTrace,
+    bool isConnectivityIssue = false,
+  }) : this._(
+         isSuccess: false,
+         errorMessage: message,
+         statusCode: statusCode,
+         error: error,
+         stackTrace: stackTrace,
+         isConnectivityIssue: isConnectivityIssue,
+       );
+
+  final bool isSuccess;
+  final String? errorMessage;
+  final int? statusCode;
+  final Object? error;
+  final StackTrace? stackTrace;
+  final bool isConnectivityIssue;
 }
 
 class BearerCheckResult {
