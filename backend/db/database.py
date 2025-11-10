@@ -35,7 +35,7 @@ def update_one(table_name: str, keys_dict: dict, values_dict: dict) -> dict:
     if not utility.check_primary_keys(table_name, keys_dict):
         raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
     try:
-        return db[table_name].update_one(keys_dict, {"$set": values_dict})
+        return db[table_name].update_one(keys_dict, values_dict)
     except PyMongoError as e:
         raise RuntimeError(e)
 
@@ -74,8 +74,13 @@ def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> l
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_one_and_update(table_name: str, filters: dict = {}, projection: dict = None) -> list:
-    find_one(table_name, filters, projection)
+def find_one_and_update(table_name: str, keys_dict: dict = {}, values_dict: dict, return_policy, projection: dict = None) -> list:
+    db = connect_to_db()
+    try:
+        proj = db[table_name].find_one_and_update(filter = keys_dict, update = values_dict, projection = projection, return_document = return_policy)
+        return proj
+    except PyMongoError as e:
+        raise RuntimeError(e)
 
 def create_indexes(db: Optional[Database]) -> None:
     if db is None:

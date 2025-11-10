@@ -46,34 +46,31 @@ def task_done(payload: SetTaskDone) -> dict:
     task_id = payload.task_id
     if not task_id:
         raise HTTPException(status_code = 402, detail = "Invalid Task ID")
-    # Manca l'api per gli update che non sono setter ma sono più complessi, vedi te come implementarlo e se implementarlo
-    # Qui lo faccio in maniera diretta senza la tua API
-    proj_task = db.update_one(
-        table_name="tasks",
-        keys_dict={"task_id" : task_id, "user_id" : user_id},
-        values_dict={"$set": {"completed_at": utils.now()}}
-    )
-    #proj_task = client.get_collection("tasks").find_one_and_update({"task_id" : task_id, "user_id" : user_id},{"$set": {"completed_at": utils.now()}}, projection = {"_id" : False, "score" : True}, return_document = ReturnDocument.AFTER)
+    proj_task = db.find_one_and_update(
+        table_name = "tasks",
+        keys_dict = {"task_id" : task_id, "user_id" : user_id}, 
+        values_dict = {"$set": {"completed_at": utils.now()}}, 
+        projection = {"_id" : False, "score" : True}, 
+        return_policy = ReturnDocument.AFTER)
     score = proj_task["score"] if proj_task else None
-    # is None diverso da not, se è 0 il not è vero perché è false, ma non è None
-    # [0 non e' un valore ammissibile? non sarebbe sbagliato sollevare un'eccezione in caso di score=0?]
     if score is None:
         raise HTTPException(status_code = 403, detail = "Invalid score in Task ID")
-    proj_user_data = db.update_one(
-        table_name="users",
-        keys_dict={"user_id": user_id},
-        values_dict={"$inc": {"n_tasks_done": 1, "data.score": score}}
+    proj_user_data = db.find_one_and_update(
+        table_name = "users",
+        keys_dict = {"user_id": user_id},
+        values_dict = {"$inc": {"n_tasks_done": 1, "data.score": score}},
+        projection = {"_id": False, "username": True, "data.score": True}, 
+        return_policy = ReturnDocument.AFTER
     )
-    #proj_user_data = client.get_collection("users").find_one_and_update({"user_id": user_id}, {"$inc": {"n_tasks_done": 1, "data.score": score}}, projection = {"_id": False, "username": True, "data.score": True}, return_document = ReturnDocument.AFTER)
     new_score = proj_user_data["score"] if proj_user_data else None
     username = proj_user_data["username"] if proj_user_data else None
     if new_score is None or not username:
         raise HTTPException(status_code = 403, detail = "Invalid projection after updating user")
     # Leaderboard update
     db.update_one(
-        table_name="leaderboard",
-        keys_dict={"_id": "topK"},
-        values_dict={
+        table_name = "leaderboard",
+        keys_dict = {"_id": "topK"},
+        values_dict = {
             "$pull": {"items": {"username": username}},
             "$push": {
                 "items": {
@@ -84,18 +81,6 @@ def task_done(payload: SetTaskDone) -> dict:
             }
         }
     )
-    '''client.get_collection("leaderboard").update_one( {"_id": "topK"},
-        {
-            "$pull": {"items": {"username": username}},
-            "$push": {
-                "items": {
-                    "$each": [{"username": username, "score": new_score}],
-                    "$sort": {"score": -1, "username": 1},
-                    "$slice": MIN_HEAP_K_LEADER
-                }
-            }
-        },
-        upsert = True)'''
     return {"status" : True}
 
 @router.post("/set", status_code = 201)
@@ -106,7 +91,7 @@ def update_user(payload: UpdateUserBody):
     if payload.attribute not in ALLOWED_DATA_FIELDS:
         raise HTTPException(status_code = 401, detail = "Unsupported attribute")
     try:
-        up_status = db.update("users", {"user_id" : user_id, f"data.{payload.attribute}": payload.record})
+        up_status = db.update_one("users", {"user_id" : user_id}, {"$set": {f"data.{payload.attribute}": payload.record}})
         if up_status.matched_count == 0:
             raise HTTPException(status_code = 402, detail = "User not found")
     except PyMongoError: 
