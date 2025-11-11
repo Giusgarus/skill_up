@@ -115,39 +115,52 @@ class _SettingsPageState extends State<SettingsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            InkWell(
-                              onTap: () => Navigator.of(context).maybePop(),
-                              customBorder: const CircleBorder(),
-                              child: Container(
-                                width: 52,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withValues(alpha: 0.2),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.7),
-                                    width: 2,
+                            // 👇 freccia attaccata al bordo sinistro
+                            Transform.translate(
+                              offset: const Offset(-28, 0), // 👈 sposta a sinistra di quanto vale il padding
+                              child: GestureDetector(
+                                onTap: () => Navigator.of(context).maybePop(),
+                                child: Container(
+                                  width: 72,
+                                  height: 56,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFB3B3B3),
+                                    borderRadius: BorderRadius.horizontal(
+                                      right: Radius.circular(28),
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 4),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                padding: const EdgeInsets.all(10),
-                                child: Image.asset(
-                                  'assets/icons/back.png',
-                                  fit: BoxFit.contain,
+                                  padding: const EdgeInsets.only(left: 14),
+                                  alignment: Alignment.centerLeft,
+                                  child: Image.asset(
+                                    'assets/icons/back.png',
+                                    width: 32,
+                                    height: 32,
+                                    fit: BoxFit.contain,
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 18),
                             Expanded(
-                              child: Text(
-                                'SETTINGS',
-                                style:
-                                    titleStyle ??
-                                    const TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                    ),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'SETTINGS',
+                                  style: const TextStyle(
+                                    fontSize: 36,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -231,12 +244,12 @@ class _SettingsActionButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(36), // 👈 più tondo
         child: Ink(
           height: 84,
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(36), // 👈 più tondo
             border: Border.all(
               color: Colors.white.withValues(alpha: 0.8),
               width: 2,
@@ -252,8 +265,7 @@ class _SettingsActionButton extends StatelessWidget {
           child: Center(
             child: Text(
               text,
-              style:
-                  textStyle ??
+              style: textStyle ??
                   const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -277,44 +289,47 @@ class _LogoutButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderColor = Colors.white.withValues(alpha: 0.9);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: loading ? null : onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Ink(
-          height: 62,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE53935),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: borderColor, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
+    return Center( // 👈 per centrarlo orizzontalmente
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: loading ? null : onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: Ink(
+            width: 180,     // 👈 larghezza fissa più corta
+            height: 80,     // già modificata
+            decoration: BoxDecoration(
+              color: const Color(0xFFE53935),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: borderColor, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 14,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+                  : const Text(
+                'Logout',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ],
-          ),
-          child: Center(
-            child: loading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.4,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : const Text(
-                    'Logout',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 20,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
+            ),
           ),
         ),
       ),

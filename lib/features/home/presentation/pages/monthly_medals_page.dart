@@ -7,7 +7,6 @@ import '../../domain/medal_utils.dart';
 import '../../../auth/data/storage/auth_session_storage.dart';
 import 'statistics_page.dart';
 
-/// Displays medal progress for the selected month.
 class MonthlyMedalsPage extends StatefulWidget {
   MonthlyMedalsPage({super.key, DateTime? initialMonth})
       : initialMonth = initialMonth ?? DateTime.now();
@@ -65,7 +64,7 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
 
   void _changeMonth(int offset) {
     final target =
-        DateTime(_displayedMonth.year, _displayedMonth.month + offset);
+    DateTime(_displayedMonth.year, _displayedMonth.month + offset);
     final normalized = DateTime(target.year, target.month);
     _primeMonthData(normalized);
     setState(() {
@@ -87,13 +86,22 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
         ),
       );
     }
+
     final monthLabel = monthNames[_displayedMonth.month];
     final daysInMonth =
-        DateUtils.getDaysInMonth(_displayedMonth.year, _displayedMonth.month);
+    DateUtils.getDaysInMonth(_displayedMonth.year, _displayedMonth.month);
     final highlightedDay = (_initialDay.year == _displayedMonth.year &&
-            _initialDay.month == _displayedMonth.month)
+        _initialDay.month == _displayedMonth.month)
         ? _initialDay
         : null;
+
+    // calcolo per la grid
+    final firstDayOfMonth =
+    DateTime(_displayedMonth.year, _displayedMonth.month, 1);
+    final startWeekday = firstDayOfMonth.weekday; // 1 (Mon) - 7 (Sun)
+    final totalCells = daysInMonth + (startWeekday - 1);
+    final rows = (totalCells / 7).ceil();
+    final totalGridItems = rows * 7;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -101,29 +109,66 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
         children: [
           const _GradientBackground(),
           SafeArea(
-            child: SingleChildScrollView(
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // top
                   _TopBar(onBack: () => Navigator.of(context).maybePop()),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 20),
                   _MonthSelector(
                     monthLabel: monthLabel,
                     onPrevious: () => _changeMonth(-1),
                     onNext: () => _changeMonth(1),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 20),
                   const _WeekdayHeader(),
-                  const SizedBox(height: 12),
-                  _MonthlyGrid(
-                    month: _displayedMonth,
-                    daysInMonth: daysInMonth,
-                    medals: _medals,
-                    today: _today,
-                    highlightedDay: highlightedDay,
+                  const SizedBox(height: 8),
+
+                  // 👇 DA QUI IN POI prende tutto lo spazio che resta
+                  Expanded(
+                    child: GridView.builder(
+                      itemCount: totalGridItems,
+                      padding: const EdgeInsets.only(top: 4, bottom: 4),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 7,
+                        mainAxisSpacing: 14,
+                        crossAxisSpacing: 8,
+                        // più piccolo = cella più alta → ci entrano numero + medaglia grande
+                        childAspectRatio: 0.55,
+                      ),
+                      itemBuilder: (context, index) {
+                        // celle vuote prima del 1° e dopo l’ultimo giorno
+                        if (index < startWeekday - 1 ||
+                            index >= daysInMonth + (startWeekday - 1)) {
+                          return const SizedBox.shrink();
+                        }
+
+                        final dayNumber = index - (startWeekday - 2);
+                        final date = DateTime(
+                          _displayedMonth.year,
+                          _displayedMonth.month,
+                          dayNumber,
+                        );
+                        final medal = _medals[date] ?? MedalType.none;
+                        final isHighlighted =
+                            highlightedDay != null && date == highlightedDay;
+                        final isToday = date == _today;
+
+                        return _DayCell(
+                          date: date,
+                          medal: medal,
+                          isToday: isToday,
+                          isHighlighted: isHighlighted,
+                        );
+                      },
+                    ),
                   ),
-                  const SizedBox(height: 28),
+
+                  const SizedBox(height: 18),
+
+                  // bottone in fondo
                   _StatisticsButton(
                     onTap: () {
                       Navigator.of(context).pushNamed(
@@ -135,7 +180,6 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
                       );
                     },
                   ),
-                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -153,24 +197,27 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onBack,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: 0.2),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.7),
-            width: 2,
+    return Transform.translate(
+      offset: const Offset(-24, 0), // 👈 togliamo il padding esterno
+      child: GestureDetector(
+        onTap: onBack,
+        child: Container(
+          width: 72,
+          height: 56,
+          decoration: const BoxDecoration(
+            color: Color(0xFFB3B3B3),
+            borderRadius: BorderRadius.horizontal(
+              right: Radius.circular(28), // parte tonda verso il centro
+            ),
           ),
-        ),
-        padding: const EdgeInsets.all(10),
-        child: Image.asset(
-          'assets/icons/back.png',
-          fit: BoxFit.contain,
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 14),
+          child: Image.asset(
+            'assets/icons/back.png',
+            width: 30,
+            height: 30,
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );
@@ -191,15 +238,16 @@ class _MonthSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-          letterSpacing: 1.1,
-        );
+      fontWeight: FontWeight.w700,
+      color: Colors.white,
+      letterSpacing: 1.1,
+    );
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _ArrowButton(icon: Icons.chevron_left, onTap: onPrevious),
+        _ArrowButton(isLeft: true, onTap: onPrevious),
+        const SizedBox(width: 20), //
         Text(
           monthLabel,
           style: textStyle ??
@@ -209,7 +257,8 @@ class _MonthSelector extends StatelessWidget {
                 color: Colors.white,
               ),
         ),
-        _ArrowButton(icon: Icons.chevron_right, onTap: onNext),
+        const SizedBox(width: 20),
+        _ArrowButton(isLeft: false, onTap: onNext),
       ],
     );
   }
@@ -221,83 +270,28 @@ class _WeekdayHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labelStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        );
+      fontWeight: FontWeight.w600,
+      color: Colors.white,
+    );
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: weekdayShortLabels
           .map(
             (label) => Expanded(
-              child: Center(
-                child: Text(
-                  label,
-                  style: labelStyle ??
-                      const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                ),
-              ),
+          child: Center(
+            child: Text(
+              label,
+              style: labelStyle ??
+                  const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
             ),
-          )
-          .toList(),
-    );
-  }
-}
-
-class _MonthlyGrid extends StatelessWidget {
-  const _MonthlyGrid({
-    required this.month,
-    required this.daysInMonth,
-    required this.medals,
-    required this.today,
-    this.highlightedDay,
-  });
-
-  final DateTime month;
-  final int daysInMonth;
-  final Map<DateTime, MedalType> medals;
-  final DateTime today;
-  final DateTime? highlightedDay;
-
-  @override
-  Widget build(BuildContext context) {
-    final firstDayOfMonth = DateTime(month.year, month.month, 1);
-    final startWeekday = firstDayOfMonth.weekday; // 1 (Mon) - 7 (Sun)
-    final totalCells = daysInMonth + (startWeekday - 1);
-    final rows = (totalCells / 7).ceil();
-    final children = <Widget>[];
-
-    for (var index = 0; index < rows * 7; index++) {
-      if (index < startWeekday - 1 || index >= daysInMonth + (startWeekday - 1)) {
-        children.add(const SizedBox.shrink());
-        continue;
-      }
-      final dayNumber = index - (startWeekday - 2);
-      final date = DateTime(month.year, month.month, dayNumber);
-      final medal = medals[date] ?? MedalType.none;
-      final isHighlighted = highlightedDay != null && date == highlightedDay;
-      final isToday = date == today;
-      children.add(
-        _DayCell(
-          date: date,
-          medal: medal,
-          isToday: isToday,
-          isHighlighted: isHighlighted,
+          ),
         ),
-      );
-    }
-
-    return GridView.count(
-      shrinkWrap: true,
-      crossAxisCount: 7,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 8,
-      childAspectRatio: 0.8,
-      physics: const NeverScrollableScrollPhysics(),
-      children: children,
+      )
+          .toList(),
     );
   }
 }
@@ -317,58 +311,69 @@ class _DayCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dayLabel = date.day.toString().padLeft(2, '0');
-    final medalAsset = medalAssetForType(medal);
-    final medalTint = medalTintForType(medal);
+    final String dayLabel = date.day.toString().padLeft(2, '0');
 
-    final isTodayOnly = isToday && !isHighlighted;
-    final borderColor = isHighlighted
+    // se non c’è medaglia → svg vuoto
+    final bool hasMedal = medal != MedalType.none;
+    final String medalAsset = hasMedal
+        ? medalAssetForType(medal)
+        : 'assets/icons/blank_star_icon.svg';
+    final Color? medalTint = hasMedal ? medalTintForType(medal) : null;
+
+    final bool isTodayOnly = isToday && !isHighlighted;
+
+    final Color borderColor = isHighlighted
         ? Colors.white
         : isTodayOnly
-            ? Colors.white.withValues(alpha: 0.6)
-            : Colors.transparent;
-    final backgroundColor = isHighlighted
-        ? Colors.white.withValues(alpha: 0.18)
+        ? Colors.white.withValues(alpha: 0.6)
+        : Colors.transparent;
+
+    final Color bgColor = isHighlighted
+        ? Colors.white.withValues(alpha: 0.16)
         : isTodayOnly
-            ? Colors.white.withValues(alpha: 0.1)
-            : Colors.transparent;
-    final borderWidth = isHighlighted || isTodayOnly ? 2.0 : 0.0;
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.transparent;
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: borderColor,
-          width: borderWidth,
+          width: borderColor == Colors.transparent ? 0 : 2,
         ),
-        color: backgroundColor,
+        color: bgColor,
       ),
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            width: 30,
-            height: 30,
-            child: SvgPicture.asset(
-              medalAsset,
-              colorFilter:
-                  medalTint == null ? null : ColorFilter.mode(medalTint, BlendMode.srcIn),
-            ),
-          ),
-          const SizedBox(height: 2),
+          // numero sopra (come nel mockup)
           Text(
             dayLabel,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  fontSize: 14,
-                ) ??
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              fontSize: 13,
+            ) ??
                 const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: Colors.white,
                 ),
+          ),
+          const SizedBox(height: 5),
+          // medaglia più grande
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: SvgPicture.asset(
+              medalAsset,
+              fit: BoxFit.contain,
+              // coloro solo se è una medaglia vera
+              colorFilter: medalTint == null
+                  ? null
+                  : ColorFilter.mode(medalTint, BlendMode.srcIn),
+            ),
           ),
         ],
       ),
@@ -384,19 +389,19 @@ class _StatisticsButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: Colors.black,
-        );
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    );
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
         child: Ink(
-          height: 72,
+          height: 60, // 👈 prima era 72
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: Colors.white.withValues(alpha: 0.85),
               width: 2,
@@ -416,16 +421,16 @@ class _StatisticsButton extends StatelessWidget {
                 'Go to all statistics',
                 style: textStyle ??
                     const TextStyle(
-                      fontSize: 18,
+                      fontSize: 16, // 👈 anche un filo più piccolo
                       fontWeight: FontWeight.w700,
                       color: Colors.black,
                     ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               SvgPicture.asset(
                 'assets/icons/send_icon.svg',
-                width: 30,
-                height: 30,
+                width: 26,
+                height: 26,
               ),
             ],
           ),
@@ -436,34 +441,60 @@ class _StatisticsButton extends StatelessWidget {
 }
 
 class _ArrowButton extends StatelessWidget {
-  const _ArrowButton({required this.icon, required this.onTap});
+  const _ArrowButton({required this.isLeft, required this.onTap});
 
-  final IconData icon;
+  final bool isLeft;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.2),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.7),
-              width: 2,
-            ),
-          ),
-          child: Icon(icon, color: Colors.white, size: 28),
+    return GestureDetector(
+      onTap: onTap,
+      child: CustomPaint(
+        painter: _RoundedTrianglePainter(isLeft: isLeft),
+        child: const SizedBox(
+          width: 18,
+          height: 18,
         ),
       ),
     );
   }
+}
+
+class _RoundedTrianglePainter extends CustomPainter {
+  final bool isLeft;
+
+  _RoundedTrianglePainter({required this.isLeft});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final path = Path();
+
+    const double roundness = 3.0; // 👈 maggiore = più curvo
+
+    if (isLeft) {
+      path.moveTo(size.width, 0);
+      path.quadraticBezierTo(
+          size.width - roundness, size.height / 2, size.width, size.height);
+      path.lineTo(0, size.height / 2);
+    } else {
+      path.moveTo(0, 0);
+      path.quadraticBezierTo(
+          roundness, size.height / 2, 0, size.height);
+      path.lineTo(size.width, size.height / 2);
+    }
+
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _GradientBackground extends StatelessWidget {

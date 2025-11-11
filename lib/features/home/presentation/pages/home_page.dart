@@ -796,9 +796,7 @@ class _Header extends StatelessWidget {
         _SidePillButton(
           onTap: onProfileTap,
           isLeft: true,
-          asset: profileImage == null ? 'assets/icons/profile_icon.png' : null,
-          image: profileImage,
-          width: 72,
+          asset: 'assets/icons/profile_icon.png',
         ),
 
         // centro flessibile
@@ -827,7 +825,6 @@ class _Header extends StatelessWidget {
           onTap: onSettingsTap,
           isLeft: false,
           asset: 'assets/icons/settings_icon.png',
-          width: 72,
         ),
       ],
     );
@@ -840,7 +837,7 @@ class _SidePillButton extends StatelessWidget {
     required this.isLeft,
     this.asset,
     this.image,
-    this.width = 72, // 👈 qui lo accorci
+    this.width = 72,
   }) : assert(asset != null || image != null);
 
   final VoidCallback onTap;
@@ -851,22 +848,16 @@ class _SidePillButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSvg = asset != null && asset!.toLowerCase().endsWith('.svg');
-
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: width,
         height: 56,
         decoration: BoxDecoration(
-          color: const Color(0xFF8B8B8B),
+          color: const Color(0xFFB3B3B3), // ✅ grigio corretto
           borderRadius: BorderRadius.horizontal(
             left: isLeft ? Radius.zero : const Radius.circular(28),
             right: isLeft ? const Radius.circular(28) : Radius.zero,
-          ),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.6),
-            width: 3,
           ),
           boxShadow: [
             BoxShadow(
@@ -877,29 +868,12 @@ class _SidePillButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: image != null
-            ? Image(
-          image: image!,
-          width: 45,
-          height: 45,
+        child: Image.asset(
+          asset!,          // ✅ ora carichi sempre il PNG
+          width: 40,
+          height: 40,
           fit: BoxFit.contain,
-        )
-            : (isSvg
-            ? SvgPicture.asset(
-          asset!,
-          width: 45,
-          height: 45,
-          colorFilter: const ColorFilter.mode(
-            Colors.white,
-            BlendMode.srcIn,
-          ),
-        )
-            : Image.asset(
-          asset!,
-          width: 45,
-          height: 45,
-          color: Colors.white,
-        )),
+        ),
       ),
     );
   }
@@ -1301,7 +1275,7 @@ class _HabitCard extends StatelessWidget {
     // colori
     final Color inactiveBase = const Color(0xFFD6D6D6);
     final Color activeBase = const Color(0xFF63DE77);
-    final Color inactiveTitle = const Color(0xFF8B8B8B);
+    final Color inactiveTitle = const Color(0xFFB3B3B3);
     final Color activeTitle = const Color(0xFF5CD16A);
 
     final Color baseColor = isCompleted ? activeBase : inactiveBase;
