@@ -100,7 +100,7 @@ def update_user(payload: UpdateUserBody):
         raise HTTPException(status_code = 403, detail = "Database error")
     return {"updated": True, "new_record": payload.record}
 
-@router.get("/prompt", status_code = 200)
+@router.post("/prompt", status_code = 200)
 def get_llm_response(payload: GeneratePlan) -> dict:
     token = payload.token
     prompt = payload.plan
