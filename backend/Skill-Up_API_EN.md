@@ -30,15 +30,12 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
 user_collection.create_index("user_id", unique=True)
 ```
 
----
-
-## 1.2 `tasks`
+### 1.2 `tasks`
 ```json
 [
   {
     "task_id": "<string>",
-    "created_at": "<ISO datetime UTC>",
-    "milestone_day": "",
+    "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
     "title": "<string>",
     "score": "<int>"
@@ -48,14 +45,20 @@ user_collection.create_index("user_id", unique=True)
   .
 ]
 ```
-## 1.2 `plan`
+**Indexes**
+```python
+tasks_collection.create_index(["task_id"], unique=True)
+```
+
+### 1.3 `plan`
 ```json
 [
   {
     "plan_id": "<string>",
-    "user_id": "",
-    "created_at": "timestamp",
-    "task_id_list": []
+    "user_id": "<string>",
+    "created_at": "<ISO datetime UTC>",
+    "completed_at": "<ISO datetime UTC>|null",
+    "task_id_list": ["<string>", ... , "<string>"]
   },
   .
   .
@@ -64,12 +67,10 @@ user_collection.create_index("user_id", unique=True)
 ```
 **Indexes**
 ```python
-tasks_collection.create_index(["task_id","user_id"], unique=True)
+tasks_collection.create_index(["plan_id","user_id"], unique=True)
 ```
 
----
-
-### 1.3 `sessions`
+### 1.4 `sessions`
 ```json
 [
   {
@@ -85,9 +86,7 @@ tasks_collection.create_index(["task_id","user_id"], unique=True)
 sessions_collection.create_index("token", unique=True)
 ```
 
----
-
-### 1.4 `leaderboard`
+### 1.5 `leaderboard`
 ```json
 [
   {
@@ -103,6 +102,8 @@ sessions_collection.create_index("token", unique=True)
 ```python
 leaderboard_collection.create_index("user_id", unique=True)
 ```
+
+---
 
 ## 2) Main logic
 
