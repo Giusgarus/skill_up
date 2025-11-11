@@ -21,8 +21,9 @@ RecordStr = Annotated[
         min_length = MIN_LEN_ADF,
         max_length = MAX_LEN_ADF,
         pattern = r"^[\x20-\x7E]+$",
-    ),
+    )
 ]
+
 class UpdateUserBody(BaseModel):
     token: str 
     attribute: str
