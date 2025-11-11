@@ -565,14 +565,80 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // 1) sfondo principale
           const _GradientBackground(),
+
+          // 2) CONTENUTO SCORREVOLE (dietro)
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+              24,
+              280, // 👈 deve essere >= height dello sfondo colorato
+              24,
+              18,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: _DailyTasksCard(
+                      tasks: _tasks,
+                      completionPercent: _completionPercent,
+                      medalType: todaysMedal,
+                      onToggleTask: _toggleTask,
+                    ),
+                  ),
+                ),
+                Transform.translate(
+                  offset: const Offset(0, -12),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: _StreakBanner(streakDays: _currentStreak),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _HabitGrid(tasks: _tasks, onTaskTap: _toggleTask),
+                const SizedBox(height: 120),
+              ],
+            ),
+          ),
+
+          // 3) SFONDO COLORATO FISSO (solo background, può avere height fissa)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 270, // 👈 un po’ più lungo per coprire il summary
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFFFF9A9E),
+                    Color(0xFFFAD0C4),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(28),
+                  bottomRight: Radius.circular(28),
+                ),
+              ),
+            ),
+          ),
+
+          // 4) CONTENUTO FISSO (header + calendario) SENZA height fissa
           SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _Header(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 👇 header SENZA padding laterale, così i pill toccano i bordi
+                Padding(
+                  padding: const EdgeInsets.only(top: 18),
+                  child: _Header(
                     monthLabel: monthLabel,
                     onProfileTap: () {
                       Navigator.of(context)
@@ -590,49 +656,26 @@ class _HomePageState extends State<HomePage> {
                     },
                     profileImage: _profileImage,
                   ),
-                  const SizedBox(height: 28),
-                  _CalendarStrip(
+                ),
+
+                const SizedBox(height: 28),
+
+                // 👇 tutto il resto con il padding 24 come prima
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _CalendarStrip(
                     weekDays: _currentWeek,
                     selectedDay: _selectedDay,
                     today: _today,
                     medals: weeklyMedals,
                     onDaySelected: _selectDay,
                   ),
-                  const SizedBox(height: 32),
-                  // CARD SUMMARY
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: _DailyTasksCard(
-                        tasks: _tasks,
-                        completionPercent: _completionPercent,
-                        medalType: todaysMedal,
-                        onToggleTask: _toggleTask,
-                      ),
-                    ),
-                  ),
-
-                  Transform.translate(
-                    offset: const Offset(0, -12),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        child: _StreakBanner(streakDays: _currentStreak),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-                  _HabitGrid(tasks: _tasks, onTaskTap: _toggleTask),
-
-                  // spazio extra perché il bottone è fisso sopra
-                  const SizedBox(height: 120),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
 
-          // 🔻 bottone fisso in basso
+          // 5) bottone fisso in basso
           Positioned(
             left: 24,
             right: 24,
@@ -648,7 +691,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🔻 overlay sopra tutto quando è aperto
+          // 6) overlay sopra tutto
           if (_isAddHabitOpen)
             _AddHabitOverlay(
               goalText: _newHabitGoal,
@@ -748,88 +791,115 @@ class _Header extends StatelessWidget {
     );
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _RoundedIconButton(
+        // sinistra
+        _SidePillButton(
+          onTap: onProfileTap,
+          isLeft: true,
           asset: profileImage == null ? 'assets/icons/profile_icon.png' : null,
           image: profileImage,
-          onTap: onProfileTap,
+          width: 72,
         ),
-        InkWell(
-          onTap: onMonthTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Text(
-              monthLabel,
-              style: titleStyle ?? const TextStyle(fontSize: 36),
+
+        // centro flessibile
+        Expanded(
+          child: Center(
+            child: InkWell(
+              onTap: onMonthTap,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Text(
+                  monthLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle ?? const TextStyle(fontSize: 36),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ),
           ),
         ),
-        _RoundedIconButton(
-          asset: 'assets/icons/settings_icon.png',
+
+        // destra
+        _SidePillButton(
           onTap: onSettingsTap,
+          isLeft: false,
+          asset: 'assets/icons/settings_icon.png',
+          width: 72,
         ),
       ],
     );
   }
 }
 
-class _RoundedIconButton extends StatelessWidget {
-  const _RoundedIconButton({required this.onTap, this.asset, this.image})
-    : assert(asset != null || image != null);
+class _SidePillButton extends StatelessWidget {
+  const _SidePillButton({
+    required this.onTap,
+    required this.isLeft,
+    this.asset,
+    this.image,
+    this.width = 72, // 👈 qui lo accorci
+  }) : assert(asset != null || image != null);
 
+  final VoidCallback onTap;
+  final bool isLeft;
   final String? asset;
   final ImageProvider? image;
-  final VoidCallback onTap;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     final isSvg = asset != null && asset!.toLowerCase().endsWith('.svg');
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: image == null ? const Color(0xFFD6D6D6) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.6),
-              width: 3,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            image: image != null
-                ? DecorationImage(image: image!, fit: BoxFit.cover)
-                : null,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xFF8B8B8B),
+          borderRadius: BorderRadius.horizontal(
+            left: isLeft ? Radius.zero : const Radius.circular(28),
+            right: isLeft ? const Radius.circular(28) : Radius.zero,
           ),
-          alignment: Alignment.center,
-          child: image != null
-              ? null
-              : (isSvg
-                    ? SvgPicture.asset(
-                        asset!,
-                        width: 32,
-                        height: 32,
-                        allowDrawingOutsideViewBox: true,
-                      )
-                    : Image.asset(
-                        asset!,
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.contain,
-                      )),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.6),
+            width: 3,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
+        alignment: Alignment.center,
+        child: image != null
+            ? Image(
+          image: image!,
+          width: 45,
+          height: 45,
+          fit: BoxFit.contain,
+        )
+            : (isSvg
+            ? SvgPicture.asset(
+          asset!,
+          width: 45,
+          height: 45,
+          colorFilter: const ColorFilter.mode(
+            Colors.white,
+            BlendMode.srcIn,
+          ),
+        )
+            : Image.asset(
+          asset!,
+          width: 45,
+          height: 45,
+          color: Colors.white,
+        )),
       ),
     );
   }
