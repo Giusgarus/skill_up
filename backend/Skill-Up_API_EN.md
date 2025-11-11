@@ -37,11 +37,25 @@ user_collection.create_index("user_id", unique=True)
 [
   {
     "task_id": "<string>",
-    "user_id": "<string>",
     "created_at": "<ISO datetime UTC>",
+    "milestone_day": "",
     "completed_at": "<ISO datetime UTC>|null",
     "title": "<string>",
     "score": "<int>"
+  },
+  .
+  .
+  .
+]
+```
+## 1.2 `plan`
+```json
+[
+  {
+    "plan_id": "<string>",
+    "user_id": "",
+    "created_at": "timestamp",
+    "task_id_list": []
   },
   .
   .

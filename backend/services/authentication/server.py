@@ -63,6 +63,15 @@ def register(payload: RegisterInput) -> dict:
         "creation_time_account": timing.now(),
         "data": {
             "score": 0,
+            '''# per giorni senza task: non inserire nulla
+            # per giorni con task (non fatti): tutto None
+            # per giorni con task (fatti): medaglie/a presenti/e
+            "medals" : {"daily iso timestamp" : {"B": "timestamp"|None, "S": "timestamp"|None, "G": "timestamp"|None}},
+            # trigger mongo o segnale orologio controlla ogni mezzanotte se nell'ultima data e' stato fatto un task.
+            # caso data di oggi presente e medaglia presente: +1,
+            # caso data di oggi non e' presente: +0
+            # caso 
+            "streak": 0+1+1 = 0,'''
             "name": None, "surname": None,
             "height": None, "weight": None, "sex": None,
             "info1": None, "info2": None, "info3": None, "info4": None
