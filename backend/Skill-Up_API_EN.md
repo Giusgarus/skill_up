@@ -17,6 +17,16 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
     "password_hash": "<base64(salt||scrypt_key)>",
     "email": "<string>",
     "n_tasks_done": "<int>",
+    // se si fa una append gli oggetti medal sono ordinati per data, in questo modo abbiamo da fare il check solo nelle ultime posizioni (cioe' nelle posizioni finche' la data e' odierna)
+    "medals": [
+      {
+        "timestamp": "<ISO datetime UTC>",
+        "task_id": "<string>",
+        "medal": "B"|"S"|"G"|None // caso None: quando la deadline_date del task e' stata superata (ovvero da mezzanotte del giorno successivo) e il task non e' stato fatto (campo con None aggiunto dall'orologio prima dei check per aggiornare lo streak)
+      },
+      ...
+    ],
+    "streak": "<int>",
     "score": "<int>",
     ...
   },
@@ -50,7 +60,7 @@ user_collection.create_index("user_id", unique=True)
 tasks_collection.create_index(["task_id"], unique=True)
 ```
 
-### 1.3 `plan`
+### 1.3 `plans`
 ```json
 [
   {
@@ -58,7 +68,11 @@ tasks_collection.create_index(["task_id"], unique=True)
     "user_id": "<string>",
     "created_at": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
-    "task_id_list": ["<string>", ... , "<string>"]
+    "task_id_list": ["<string>", ... , "<string>"],
+    "task_per_day": {
+      "<ISO datetime UTC>": <task_id>,
+      ...
+    }
   },
   .
   .
