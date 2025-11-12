@@ -16,6 +16,7 @@ import 'package:skill_up/features/profile/data/user_profile_storage.dart';
 import 'package:skill_up/features/profile/presentation/pages/user_info_page.dart';
 import 'package:skill_up/features/settings/presentation/pages/settings_page.dart';
 import 'package:skill_up/shared/notifications/notification_service.dart';
+import 'package:skill_up/features/home/presentation/pages/statistics_page.dart';
 
 class DailyTask {
   const DailyTask({
@@ -587,6 +588,15 @@ class _HomePageState extends State<HomePage> {
                       completionPercent: _completionPercent,
                       medalType: todaysMedal,
                       onToggleTask: _toggleTask,
+                      onLongPress: () {
+                        Navigator.of(context).pushNamed(
+                          StatisticsPage.route,
+                          arguments: {
+                            'year': _selectedDay.year,
+                            'month': _selectedDay.month,
+                          },
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -996,12 +1006,14 @@ class _DailyTasksCard extends StatelessWidget {
     required this.completionPercent,
     required this.medalType,
     required this.onToggleTask,
+    this.onLongPress,
   });
 
   final List<DailyTask> tasks;
   final int completionPercent;
   final MedalType medalType;
   final ValueChanged<String> onToggleTask;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1012,7 +1024,8 @@ class _DailyTasksCard extends StatelessWidget {
 
     final Color? starTint = medalTintForType(medalType);
 
-    return Container(
+    // ✅ qui salvi il contenitore in una variabile
+    final card = Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1040,8 +1053,7 @@ class _DailyTasksCard extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Row(
-            mainAxisAlignment:
-                MainAxisAlignment.center, // 🔸 le colonne vicine e centrate
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               // 🔹 Colonna barre
@@ -1059,10 +1071,8 @@ class _DailyTasksCard extends StatelessWidget {
                   }),
                 ),
               ),
+              const SizedBox(width: 30),
 
-              const SizedBox(
-                width: 30,
-              ), // 🔸 spazio fra le due colonne (modifica se serve)
               // 🔹 Percentuale + medaglia
               Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -1086,22 +1096,22 @@ class _DailyTasksCard extends StatelessWidget {
                     alignment: Alignment.center,
                     child: medalType == MedalType.none
                         ? SvgPicture.asset(
-                            'assets/icons/blank_star_icon.svg', // 👈 il tuo file SVG vuoto
-                            width: 78,
-                            height: 78,
-                            fit: BoxFit.contain,
-                          )
+                      'assets/icons/blank_star_icon.svg',
+                      width: 78,
+                      height: 78,
+                      fit: BoxFit.contain,
+                    )
                         : SizedBox(
-                            width: 78,
-                            height: 78,
-                            child: SvgPicture.asset(
-                              medalAssetForType(medalType),
-                              fit: BoxFit.contain,
-                              colorFilter: starTint != null
-                                  ? ColorFilter.mode(starTint, BlendMode.srcIn)
-                                  : null,
-                            ),
-                          ),
+                      width: 78,
+                      height: 78,
+                      child: SvgPicture.asset(
+                        medalAssetForType(medalType),
+                        fit: BoxFit.contain,
+                        colorFilter: starTint != null
+                            ? ColorFilter.mode(starTint, BlendMode.srcIn)
+                            : null,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1109,6 +1119,12 @@ class _DailyTasksCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    // ✅ qui ritorni il card wrappato nel GestureDetector
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: card,
     );
   }
 }
