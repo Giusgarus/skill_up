@@ -103,12 +103,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return AuthScaffold(
-      title: 'Login',
-      // ⬇️ Passa l'SVG invece del testo
-      titleWidget: Semantics(
-        label: 'Login', // accessibilità
-      ),
-
+      title: 'Login', // verrà mostrato grande come in Register
       form: Form(
         key: _formKey,
         child: Column(
@@ -131,7 +126,7 @@ class _LoginPageState extends State<LoginPage> {
               hint: 'password',
               obscureText: true,
               validator: (v) =>
-                  (v == null || v.isEmpty) ? 'Password required' : null,
+              (v == null || v.isEmpty) ? 'Password required' : null,
             ),
             const SizedBox(height: 22),
             RoundArrowButton(

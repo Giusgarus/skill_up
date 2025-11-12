@@ -12,6 +12,9 @@ import '../../data/user_profile_info_storage.dart';
 import '../../data/user_profile_storage.dart';
 import '../../domain/user_profile_fields.dart';
 
+
+const double _formMaxWidth = 360; // larghezza compatta stile iniziale
+
 /// Page displaying editable user information.
 class UserInfoPage extends StatefulWidget {
   const UserInfoPage({super.key});
@@ -30,7 +33,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, TextEditingController> _controllers =
-      <String, TextEditingController>{};
+  <String, TextEditingController>{};
   final Map<String, Timer?> _debounceTimers = <String, Timer?>{};
   final Map<String, String> _cachedValues = <String, String>{};
   File? _profileImage;
@@ -167,7 +170,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Unable to update profile picture.'),
           ),
         );
@@ -287,27 +290,14 @@ class _UserInfoPageState extends State<UserInfoPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // barra in alto con freccia e titolo
                 Row(
                   children: [
-                    InkWell(
-                      onTap: () => Navigator.of(context).maybePop(),
-                      customBorder: const CircleBorder(),
-                      child: Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.2),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.7),
-                            width: 2,
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(10),
-                        child: Image.asset(
-                          'assets/icons/back.png',
-                          fit: BoxFit.contain,
-                        ),
+                    // sposta il pill a sinistra di 24px per “uscire” dal padding e toccare il bordo
+                    Transform.translate(
+                      offset: const Offset(-24, 0),
+                      child: _SidePillBackButton(
+                        onTap: () => Navigator.of(context).maybePop(),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -324,7 +314,10 @@ class _UserInfoPageState extends State<UserInfoPage> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 28),
+
+                // immagine profilo + testo
                 Center(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -341,37 +334,28 @@ class _UserInfoPageState extends State<UserInfoPage> {
                             child: Stack(
                               clipBehavior: Clip.none,
                               children: [
-                                Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withValues(alpha: 0.3),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.7),
-                                      width: 4,
+                                // Avatar: solo PNG ritagliato in cerchio, senza alone / bordi
+                                ClipOval(
+                                  child: _profileImage == null
+                                      ? Center(
+                                    child: Image.asset(
+                                      'assets/icons/profile_icon.png', // <-- PNG
+                                      width: 96,
+                                      height: 96,
+                                      fit: BoxFit.contain,
+                                      filterQuality: FilterQuality.high,
                                     ),
-                                  ),
-                                  padding: const EdgeInsets.all(16),
-                                  child: DecoratedBox(
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.white,
-                                    ),
-                                    child: ClipOval(
-                                      child: _profileImage == null
-                                          ? Padding(
-                                              padding: const EdgeInsets.all(16),
-                                              child: Image.asset(
-                                                'assets/icons/profile_icon.png',
-                                                fit: BoxFit.contain,
-                                              ),
-                                            )
-                                          : Image.file(
-                                              _profileImage!,
-                                              fit: BoxFit.cover,
-                                            ),
-                                    ),
+                                  )
+                                      : Image.file(
+                                    _profileImage!,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
                                   ),
                                 ),
+
+                                // Pulsante fotocamera in basso a destra
                                 Positioned(
                                   right: -2,
                                   bottom: -2,
@@ -381,24 +365,17 @@ class _UserInfoPageState extends State<UserInfoPage> {
                                     decoration: BoxDecoration(
                                       color: Colors.black,
                                       shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 3,
-                                      ),
+                                      border: Border.all(color: Colors.white, width: 3),
                                     ),
                                     child: _isProcessing
                                         ? const Padding(
-                                            padding: EdgeInsets.all(8),
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                            ),
-                                          )
-                                        : const Icon(
-                                            Icons.photo_camera,
-                                            size: 20,
-                                            color: Colors.white,
-                                          ),
+                                      padding: EdgeInsets.all(8),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                        : const Icon(Icons.photo_camera, size: 20, color: Colors.white),
                                   ),
                                 ),
                               ],
@@ -414,18 +391,98 @@ class _UserInfoPageState extends State<UserInfoPage> {
                     ],
                   ),
                 ),
+
                 const SizedBox(height: 36),
-                for (final field in kUserProfileFields) ...[
-                  _InfoField(
-                    label: field.label,
-                    hint: field.hint,
-                    controller: _controllers[field.id]!,
-                    maxLines: field.maxLines,
-                    keyboardType: field.keyboardType,
-                    onChanged: (value) => _onFieldChanged(field.id, value),
+
+                // === CAMPI USERNAME + NAME (PILL) ===
+                // ⬇️ Colonna “compatta” centrata come la primissima versione
+                // === CAMPI USERNAME + NAME (PILL) + DROPDOWN in colonna compatta ===
+                Align(
+                  alignment: Alignment.center, // centra orizzontalmente
+                  child: SizedBox(
+                    width: 320, // <— forza davvero la larghezza visiva (prova 300–320)
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PillInfoField(
+                          label: 'Your username',
+                          hint: 'username',
+                          controller: _controllers['username']!,
+                          onChanged: (v) => _onFieldChanged('username', v),
+                        ),
+                        const SizedBox(height: 16),
+
+                        _PillInfoField(
+                          label: 'Your name',
+                          hint: 'name / nickname',
+                          controller: _controllers['name']!,
+                          onChanged: (v) => _onFieldChanged('name', v),
+                        ),
+                        const SizedBox(height: 24),
+
+                        _LabeledDropdownPill(
+                          label: 'Your gender',
+                          value: _controllers['gender']?.text.isEmpty == true
+                              ? null
+                              : _controllers['gender']!.text,
+                          items: const ['Female','Male','Non-binary','Prefer not to say'],
+                          onChanged: (v) {
+                            _controllers['gender']!.text = v;
+                            _onFieldChanged('gender', v);
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        _LabeledDropdownPill(
+                          label: 'Your weight',
+                          value: _controllers['weight']?.text.isEmpty == true
+                              ? null
+                              : _controllers['weight']!.text,
+                          items: List<String>.generate(111, (i) => '${40 + i} kg'),
+                          onChanged: (v) {
+                            _controllers['weight']!.text = v;
+                            _onFieldChanged('weight', v);
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        _LabeledDropdownPill(
+                          label: 'Your height',
+                          value: _controllers['height']?.text.isEmpty == true
+                              ? null
+                              : _controllers['height']!.text,
+                          items: [
+                            for (int cm = 140; cm <= 210; cm++) '${(cm / 100).toStringAsFixed(2)} m'
+                          ],
+                          onChanged: (v) {
+                            _controllers['height']!.text = v;
+                            _onFieldChanged('height', v);
+                          },
+                        ),
+                        const SizedBox(height: 28),
+
+                        // === RESTO DEI CAMPI (stile vecchio) ===
+                        for (final field in kUserProfileFields) ...[
+                          if (field.id != 'gender' &&
+                              field.id != 'weight' &&
+                              field.id != 'height' &&
+                              field.id != 'username' &&
+                              field.id != 'name') ...[
+                            _InfoField(
+                              label: field.label,
+                              hint: field.hint,
+                              controller: _controllers[field.id]!,
+                              maxLines: field.maxLines,
+                              keyboardType: field.keyboardType,
+                              onChanged: (value) => _onFieldChanged(field.id, value),
+                            ),
+                            SizedBox(height: field.spacing),
+                          ],
+                        ],
+                      ],
+                    ),
                   ),
-                  SizedBox(height: field.spacing),
-                ],
+                ),
               ],
             ),
           ),
@@ -435,6 +492,192 @@ class _UserInfoPageState extends State<UserInfoPage> {
   }
 }
 
+class _SidePillBackButton extends StatelessWidget {
+  const _SidePillBackButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 72,
+        height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xFFB3B3B3),
+          borderRadius: const BorderRadius.horizontal(
+            right: Radius.circular(28),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Image.asset(
+          'assets/icons/back.png',
+          width: 32,
+          height: 32,
+          fit: BoxFit.contain,
+        ),
+      ),
+    );
+  }
+}
+
+
+
+/// =======================
+///  STILI PILL (usati SOLO per username/name e dropdown)
+/// =======================
+const double _pillHeight = 56;
+const double _pillRadius = 28;
+
+InputDecoration _pillDecoration(String hint) => InputDecoration(
+  hintText: hint,
+  hintStyle: const TextStyle(
+    color: Color(0xAA9E9E9E),
+    fontWeight: FontWeight.w600,
+  ),
+  filled: true,
+  fillColor: Colors.white,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(_pillRadius),
+    borderSide: const BorderSide(color: Colors.white),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(_pillRadius),
+    borderSide: const BorderSide(color: Colors.white),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(_pillRadius),
+    borderSide: const BorderSide(color: Colors.white, width: 2),
+  ),
+);
+
+TextStyle _pillTextStyle(BuildContext context) =>
+    Theme.of(context).textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    ) ??
+        const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black);
+
+/// === TEXT FIELD a pill (SOLO per username & name) ===
+// larghezza colonna etichetta (ritocca a piacere)
+const double _labelWidth = 140;
+
+/// === TEXT FIELD a pill (SOLO per username & name) — con etichetta a sinistra ===
+class _PillInfoField extends StatelessWidget {
+  const _PillInfoField({
+    required this.label,
+    required this.hint,
+    required this.controller,
+    required this.onChanged,
+    this.keyboardType,
+  });
+
+  final String label;
+  final String hint;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final TextInputType? keyboardType;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: _labelWidth,
+          child: Text(label, style: labelStyle),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SizedBox(
+            height: _pillHeight,
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              keyboardType: keyboardType,
+              textAlignVertical: TextAlignVertical.center,
+              style: _pillTextStyle(context),
+              decoration: _pillDecoration(hint),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// === DROPDOWN a pill — con etichetta a sinistra ===
+class _LabeledDropdownPill extends StatelessWidget {
+  const _LabeledDropdownPill({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String? value;
+  final List<String> items;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: _labelWidth,
+          child: Text(label, style: labelStyle),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SizedBox(
+            height: _pillHeight,
+            child: DropdownButtonFormField<String>(
+              value: value,
+              isExpanded: true,
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
+              style: _pillTextStyle(context),
+              decoration: _pillDecoration(''),
+              items: items
+                  .map((e) => DropdownMenuItem<String>(
+                value: e,
+                child: Text(e, style: _pillTextStyle(context)),
+              ))
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// =======================
+///  VECCHIO STILE (rettangolo r=22) per TUTTI GLI ALTRI CAMPI
+/// =======================
 class _InfoField extends StatelessWidget {
   const _InfoField({
     required this.label,
@@ -455,20 +698,27 @@ class _InfoField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: Colors.black,
-        );
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    );
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center, // centrato orizzontalmente
       children: [
-        Text(label, style: labelStyle),
+        Center(
+          child: Text(
+            label,
+            style: labelStyle,
+            textAlign: TextAlign.center,
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           onChanged: onChanged,
           maxLines: maxLines,
           keyboardType: keyboardType,
+          textAlignVertical: TextAlignVertical.top,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Color(0xAA9E9E9E)),
