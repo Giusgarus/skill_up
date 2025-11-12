@@ -609,7 +609,8 @@ class _PillInfoField extends StatelessWidget {
               controller: controller,
               onChanged: onChanged,
               keyboardType: keyboardType,
-              textAlignVertical: TextAlignVertical.center,
+              textAlign: TextAlign.center, // 👈 centrato orizzontalmente
+              textAlignVertical: TextAlignVertical.center, // 👈 centrato verticalmente
               style: _pillTextStyle(context),
               decoration: _pillDecoration(hint),
             ),
@@ -655,12 +656,14 @@ class _LabeledDropdownPill extends StatelessWidget {
             child: DropdownButtonFormField<String>(
               value: value,
               isExpanded: true,
+              alignment: Alignment.center, // 👈 testo centrato nel box
               icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
               style: _pillTextStyle(context),
               decoration: _pillDecoration(''),
               items: items
                   .map((e) => DropdownMenuItem<String>(
                 value: e,
+                alignment: Alignment.center, // 👈 centra le opzioni nel menu
                 child: Text(e, style: _pillTextStyle(context)),
               ))
                   .toList(),
@@ -703,7 +706,7 @@ class _InfoField extends StatelessWidget {
     );
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.center, // centrato orizzontalmente
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Center(
           child: Text(
@@ -718,7 +721,8 @@ class _InfoField extends StatelessWidget {
           onChanged: onChanged,
           maxLines: maxLines,
           keyboardType: keyboardType,
-          textAlignVertical: TextAlignVertical.top,
+          textAlign: TextAlign.center, // 👈 testo centrato
+          textAlignVertical: TextAlignVertical.center, // 👈 centrato verticalmente
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Color(0xAA9E9E9E)),
