@@ -58,24 +58,19 @@ def register(payload: RegisterInput) -> dict:
         "password_hash": security.hash_password(password),
         "user_id": str(uuid.uuid4()),
         "email": email,
+        "n_plans": 0,
+        "n_plans_done": 0,
         "n_tasks_done": 0,
-        "profile_pic": None,
         "creation_time_account": timing.now(),
-        "data": {
-            "score": 0,
-            '''# per giorni senza task: non inserire nulla
-            # per giorni con task (non fatti): tutto None
-            # per giorni con task (fatti): medaglie/a presenti/e
-            "medals" : {"daily iso timestamp" : {"B": "timestamp"|None, "S": "timestamp"|None, "G": "timestamp"|None}},
-            # trigger mongo o segnale orologio controlla ogni mezzanotte se nell'ultima data e' stato fatto un task.
-            # caso data di oggi presente e medaglia presente: +1,
-            # caso data di oggi non e' presente: +0
-            # caso 
-            "streak": 0+1+1 = 0,'''
-            "name": None, "surname": None,
-            "height": None, "weight": None, "sex": None,
-            "info1": None, "info2": None, "info3": None, "info4": None
-        }
+        "profile_pic": None,
+        "streak": 0,
+        "name": None,
+        "surname": None,
+        "height": None,
+        "weight": None,
+        "sex": None,
+        "gathered_infos": [None for _ in range(20)],
+        "medals": {},
     }
     try:
         db.insert(table_name = "users", record = record)
