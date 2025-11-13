@@ -44,12 +44,11 @@ user_collection.create_index("user_id", unique=True)
 [
   {
     "task_id": "<string>",
+    "plan_id": "<string>",
     "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
     "title": "<string>",
-    "score": "<int>",
-    // A questo punto ci serve sapere a quale piano appartiene un task, potremo ricavarcelo da plans ma inizia ad essere costoso forse ? Meglio duplicare un informazione, sti cazzi.
-    "plan_id": "<boh>",
+    "score": "<int>"
   },
   .
   .
@@ -71,8 +70,7 @@ tasks_collection.create_index(["task_id"], unique=True)
     "expected_complete": "<ISO datetime UTC>", // Scadenza data dall'utente
     // Ci serve un task di un giorno X ? user_id -> prendo tutti i plan_id tale per cui tempo attuale compreso tra [created_at, expected_complete] dei plan che escono, da li prendo la lista tasks indicizzato dal dizionario per giorno. Possiamo anche mettere un campo finished plan true false e fare un filter volendo filtrare senza le date, non so quanto convenga.
     // Lista di task indicizzata per giorno iso, nella lista ogni task è un semplicemente il suo ID, tanto tutte le informazioni si trovano dentro la collezione tasks
-    "tasks": {"timestamp giorno" : ["lista di task"]}
-    }
+    "tasks": {"<ISO datetime UTC>" : ["lista di task"]}
   },
   .
   .

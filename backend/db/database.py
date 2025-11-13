@@ -100,13 +100,14 @@ def create_indexes(db: Optional[Database]) -> None:
     users = db["users"]
     tasks = db["tasks"]
     sessions = db["sessions"]
-    leaderboard = db["leaderboard"]
+    plans = db["plans"]
 
     _ensure_index(users, [("user_id", ASCENDING)], unique=True, name="users_index1")
     _ensure_index(users, [("username", ASCENDING)], unique=True, name="users_index2")
     _ensure_index(users, [("email", ASCENDING)], unique=True, name="users_index3")
     _ensure_index(tasks, [("user_id", ASCENDING), ("task_id", ASCENDING)], unique=True, name="tasks_index")
     _ensure_index(sessions, [("token", ASCENDING)], unique=True, name="sessions_index")
+    _ensure_index(plans, [("created_at", ASCENDING),("expected_complete", ASCENDING)], name="plans_index")
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     '''
