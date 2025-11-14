@@ -255,12 +255,10 @@ class AuthApi {
           : responseUsername!.trim();
 
       AuthSession? session;
-      final userId = body?['user_id'] as String?;
       if (token != null && resolvedUsername != null) {
         session = AuthSession(
           token: token,
           username: resolvedUsername,
-          userId: userId,
         );
       }
 
@@ -295,10 +293,9 @@ class AuthApi {
     if (isSuccess) {
       final token = body?['token'] as String?;
       final username = body?['username'] as String?;
-      final userId = body?['user_id'] as String?;
       if (token != null && username != null) {
         return LoginResult.success(
-          AuthSession(token: token, username: username, userId: userId),
+          AuthSession(token: token, username: username),
         );
       }
       return const LoginResult.error('Incomplete response from server.');
@@ -354,11 +351,10 @@ class LoginResult {
 }
 
 class AuthSession {
-  const AuthSession({required this.token, required this.username, this.userId});
+  const AuthSession({required this.token, required this.username});
 
   final String token;
   final String username;
-  final String? userId;
 }
 
 class LogoutResult {

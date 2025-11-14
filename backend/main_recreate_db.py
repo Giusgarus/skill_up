@@ -13,7 +13,7 @@ from backend.db.database import create_indexes
 from backend.services.authentication.server import router as authentication_router
 from backend.services.challenges.server import router as challenges_router
 from backend.services.gamification.server import router as gamification_router
-
+from backend.services.notifications.server import router as notifications_router
 
 def _recreate_database() -> None:
     """Drop the existing database and recreate required indexes."""
@@ -27,7 +27,6 @@ def _recreate_database() -> None:
     mongo_client = db.client
     try:
         mongo_client.drop_database(db_name)
-        logging.info("Dropped database '%s'.", db_name)
     except Exception as exc:
         logging.error("Failed to drop database '%s': %s", db_name, exc)
         return
@@ -40,7 +39,6 @@ def _recreate_database() -> None:
         return
 
     create_indexes(db)
-    logging.info("Recreated database '%s' with required indexes.", db_name)
 
 
 @asynccontextmanager
@@ -57,7 +55,7 @@ app = FastAPI(title="SkillUp (DB recreate)", lifespan=lifespan)
 app.include_router(authentication_router)
 app.include_router(challenges_router)
 app.include_router(gamification_router)
-
+app.include_router(notifications_router)
 
 if __name__ == "__main__":
     import uvicorn

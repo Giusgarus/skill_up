@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 import uuid
@@ -30,6 +31,24 @@ class CheckBearer(BaseModel):
     token: str
 
 router = APIRouter(prefix="/services/auth", tags=["auth"])
+logger = logging.getLogger("auth_service")
+
+
+def detach_device_tokens(session_token: str) -> None:
+    if not session_token:
+        return
+    try:
+        collection = db.connect_to_db()["device_tokens"]
+    except Exception as exc:
+        logger.warning("Unable to reach device_tokens collection: %s", exc)
+        return
+    try:
+        collection.update_many(
+            {"session_token": session_token},
+            {"$unset": {"user_id": "", "username": "", "session_token": ""}},
+        )
+    except Exception as exc:
+        logger.warning("Failed to detach device tokens for session during logout: %s", exc)
 
 @router.post("/register", status_code = 200)
 def register(payload: RegisterInput) -> dict:
@@ -118,6 +137,7 @@ def logout(payload: LogOut) -> dict:
     # Logout
     ack = db.delete("sessions", {"token" : token})
     if ack.acknowledged:
+        detach_device_tokens(token)
         return {"valid": True}
     return {"valid": False}
 

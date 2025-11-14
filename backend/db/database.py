@@ -34,12 +34,12 @@ def insert_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-def update_one(table_name: str, keys_dict: dict, values_dict: dict) -> dict:
+def update_one(table_name: str, keys_dict: dict, values_dict: dict, upsert = False) -> dict:
     db = connect_to_db()
     if not utility.check_primary_keys(table_name, keys_dict):
         raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
     try:
-        return db[table_name].update_one(keys_dict, values_dict)
+        return db[table_name].update_one(keys_dict, values_dict, upsert = upsert)
     except PyMongoError as e:
         raise RuntimeError(e)
 
@@ -102,6 +102,7 @@ def create_indexes(db: Optional[Database]) -> None:
     sessions = db["sessions"]
     plans = db["plans"]
     medals = db["medals"]
+    device_tokens = db["device_tokens"]
 
     _ensure_index(users, [("user_id", ASCENDING)], unique=True, name="users_index1")
     _ensure_index(users, [("username", ASCENDING)], unique=True, name="users_index2")
@@ -110,6 +111,8 @@ def create_indexes(db: Optional[Database]) -> None:
     _ensure_index(sessions, [("token", ASCENDING)], unique=True, name="sessions_index")
     _ensure_index(plans, [("created_at", ASCENDING),("expected_complete", ASCENDING)], name="plans_index")
     _ensure_index(medals, [("user_id", ASCENDING), ("timestamp", ASCENDING)], unique=True, name="medals_index")
+    _ensure_index(device_tokens, [("device_token", ASCENDING)], unique=True, name="device_tokens_device_token_unique")
+    _ensure_index(device_tokens, [("user_id", ASCENDING), ("platform", ASCENDING)], name="device_tokens_user_platform_index")
 
 def create(url: str = "mongodb://localhost:27017", enable_drop: bool = False):
     '''

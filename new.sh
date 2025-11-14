@@ -1,4 +1,5 @@
-bash
+#!/bin/bash
+
 # Pulisce i file di build del progetto
 flutter clean
 

@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
+import 'package:skill_up/features/auth/utils/notification_registration.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
-import 'package:skill_up/shared/notifications/notification_service.dart';
 
 import 'login_page.dart';
 
@@ -39,7 +39,7 @@ class _StartupPageState extends State<StartupPage> {
         return;
       }
 
-      unawaited(NotificationService.instance.registerSession(session));
+      unawaited(registerNotificationsForSession(session));
       _goTo(HomePage.route);
     } catch (error, stackTrace) {
       if (kDebugMode) {

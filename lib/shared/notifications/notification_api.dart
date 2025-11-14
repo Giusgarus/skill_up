@@ -23,17 +23,8 @@ class NotificationApi {
     required String sessionToken,
     required String deviceToken,
     required String platform,
-    String? userId,
   }) async {
-    final normalizedUserId = userId?.trim();
-    if (normalizedUserId == null || normalizedUserId.isEmpty) {
-      if (kDebugMode) {
-        debugPrint('Skipping device registration: missing user id.');
-      }
-      return false;
-    }
     final payload = <String, dynamic>{
-      'user_id': normalizedUserId,
       'username': username,
       'session_token': sessionToken,
       'device_token': deviceToken,

@@ -8,9 +8,9 @@ import '../../../../shared/widgets/field_label.dart';
 import '../../../../shared/widgets/round_arrow_button.dart';
 import '../../data/services/auth_api.dart';
 import '../../data/storage/auth_session_storage.dart';
+import '../../utils/notification_registration.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
-import 'package:skill_up/shared/notifications/notification_service.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -56,15 +56,13 @@ class _LoginPageState extends State<LoginPage> {
             token: session.token,
             username: session.username,
           );
-          unawaited(
-            NotificationService.instance.registerSession(session),
-          );
         } catch (storageError, storageStackTrace) {
           if (kDebugMode) {
             debugPrint('Failed to finalize login data sync: $storageError');
             debugPrint(storageStackTrace.toString());
           }
         }
+        unawaited(registerNotificationsForSession(session));
         if (!mounted) return;
         final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
         messenger.showSnackBar(

@@ -5,21 +5,26 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'shared/notifications/notification_service.dart';
+import 'firebase_options.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   }
 }
 
 /// Entry point.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    await NotificationService.instance.initialize();
   }
+  await NotificationService.instance.initialize();
   runApp(const SkillUpApp());
 }

@@ -4,6 +4,7 @@ table_primary_keys_dict = {
     "tasks": [("task_id", "user_id")],
     "sessions": [("token")],
     "leaderboard": [("_id")],
+    "device_tokens" : [("device_token"), ("user_id")],
 }
 
 def check_primary_keys(table_name: str, record: dict):

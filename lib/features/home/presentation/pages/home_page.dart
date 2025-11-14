@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:skill_up/features/auth/data/services/auth_api.dart';
@@ -295,9 +296,76 @@ class _HomePageState extends State<HomePage> {
       );
     }
     if (!_notificationsRegistered) {
-      _notificationsRegistered = true;
-      unawaited(NotificationService.instance.registerSession(activeSession));
+      await _ensureNotificationsRegistered(activeSession);
     }
+  }
+
+  Future<void> _ensureNotificationsRegistered(AuthSession session) async {
+    if (_notificationsRegistered) {
+      return;
+    }
+    final service = NotificationService.instance;
+    final granted = await _maybeRequestNotificationPermission(service);
+    if (!granted) {
+      return;
+    }
+    await service.registerSession(session);
+    _notificationsRegistered = true;
+  }
+
+  Future<bool> _maybeRequestNotificationPermission(
+    NotificationService service,
+  ) async {
+    if (service.permissionsGranted) {
+      return true;
+    }
+
+    var proceed = true;
+    if (_shouldShowNotificationDialog(service)) {
+      if (!mounted) {
+        return false;
+      }
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Abilita le notifiche'),
+          content: const Text(
+            'SkillUp invia promemoria e aggiornamenti tramite notifiche. '
+            'Per continuare, premi “Continua” e consenti le notifiche nella finestra successiva.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Continua'),
+            ),
+          ],
+        ),
+      );
+      proceed = result ?? false;
+    }
+
+    if (proceed != true) {
+      return false;
+    }
+
+    final granted = await service.requestPlatformPermissions();
+    if (!granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Abilita le notifiche dalle impostazioni di sistema per ricevere gli aggiornamenti.',
+          ),
+        ),
+      );
+    }
+    return granted;
+  }
+
+  bool _shouldShowNotificationDialog(NotificationService service) {
+    return !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.macOS &&
+        service.shouldPromptForPermission;
   }
 
   Future<void> _handleSessionInvalidation({String? message}) async {

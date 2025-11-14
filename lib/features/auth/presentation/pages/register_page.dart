@@ -9,8 +9,8 @@ import '../../../../shared/widgets/round_arrow_button.dart';
 import '../../data/services/auth_api.dart';
 import '../../data/storage/auth_session_storage.dart';
 import '../../utils/password_validator.dart';
+import '../../utils/notification_registration.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
-import 'package:skill_up/shared/notifications/notification_service.dart';
 
 class RegisterPage extends StatefulWidget {
   static const route = '/register';
@@ -119,17 +119,16 @@ class _RegisterPageState extends State<RegisterPage> {
 
       if (result.isSuccess) {
         if (result.session != null) {
+          final session = result.session!;
           try {
-            await _sessionStorage.saveSession(result.session!);
-            unawaited(
-              NotificationService.instance.registerSession(result.session!),
-            );
+            await _sessionStorage.saveSession(session);
           } catch (storageError, storageStackTrace) {
             if (kDebugMode) {
               debugPrint('Failed to persist session: $storageError');
               debugPrint(storageStackTrace.toString());
             }
           }
+          unawaited(registerNotificationsForSession(session));
         }
 
         messenger.showSnackBar(SnackBar(content: Text(successMessage)));
