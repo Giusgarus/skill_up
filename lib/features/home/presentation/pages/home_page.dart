@@ -573,7 +573,7 @@ class _HomePageState extends State<HomePage> {
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               24,
-              280, // 👈 deve essere >= height dello sfondo colorato
+              300, // 👈 deve essere >= height dello sfondo colorato
               24,
               18,
             ),
@@ -622,12 +622,12 @@ class _HomePageState extends State<HomePage> {
             left: 0,
             right: 0,
             child: Container(
-              height: 270, // 👈 un po’ più lungo per coprire il summary
+              height: 280, // 👈 un po’ più lungo per coprire il summary
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
                     Color(0xFFFF9A9E),
-                    Color(0xFFFAD0C4),
+                    Color(0xFFF2BEB7),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -1018,9 +1018,12 @@ class _DailyTasksCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // quante “fasce” devono essere accese (25% ciascuna)
-    final int filledLevels = completionPercent == 0
-        ? 0
-        : (completionPercent / 25).ceil();
+    // quante barrette devono essere accese (0–4) in base
+    // a percentuale + medaglia
+    final int filledLevels = barsForProgress(
+      completionPercent: completionPercent,
+      medalType: medalType,
+    );
 
     final Color? starTint = medalTintForType(medalType);
 
@@ -1202,6 +1205,36 @@ class _SummaryLevelBar extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+int barsForProgress({
+  required int completionPercent,
+  required MedalType medalType,
+}) {
+  // Nessun task completato → nessuna barra
+  if (completionPercent <= 0) {
+    return 0;
+  }
+
+  // Almeno 1 task → si accende SEMPRE la prima barra
+  int bars = 1;
+
+  switch (medalType) {
+    case MedalType.none:
+    // teoricamente non ci arrivi mai se completionPercent > 0,
+    // ma teniamolo per sicurezza
+      return bars;
+
+    case MedalType.bronze:
+      return 2; // prima + una per bronzo
+
+    case MedalType.silver:
+      return 3; // prima + due per argento
+
+    case MedalType.gold:
+      return 4; // tutte e 4 accese
+
   }
 }
 

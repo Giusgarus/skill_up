@@ -31,14 +31,17 @@ MedalType medalForProgress({required int completed, required int total}) {
     return MedalType.none;
   }
 
-  if (completed >= total) {
+  final ratio = completed / total;
+
+  if (ratio >= 1.0) {
     return MedalType.gold;
   }
-
-  final ratio = completed / total;
-  if (ratio >= 0.5) {
+  if (ratio >= 0.66) {
     return MedalType.silver;
   }
+  if (ratio >= 0.33) {
+    return MedalType.bronze;
+  }
 
-  return MedalType.bronze;
+  return MedalType.none;
 }

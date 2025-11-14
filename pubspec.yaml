@@ -14,31 +14,42 @@ dependencies:
   flutter_svg: ^2.0.10+1
   cupertino_icons: ^1.0.8
   http: ^1.2.2
-  shared_preferences: ^2.3.2   # stabile e diffusa con Dart 3.x
+  shared_preferences: ^2.3.2
   flutter_secure_storage: ^9.2.1
   image_picker: ^1.1.2
   path_provider: ^2.1.4
   path: ^1.9.0
-  firebase_core: ^2.24.2
-  firebase_messaging: ^14.7.10
-  flutter_local_notifications: ^17.2.1
+  firebase_core: ^4.2.1
+  firebase_messaging: ^16.0.4
+  flutter_local_notifications: ^19.5.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  flutter_launcher_icons: ^0.13.1  # 👈 aggiunto
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/brand/
     - assets/icons/
 
-flutter_icons:
+# 🚀 ICONA APP
+flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/brand/skillup_logo.png"
-  adaptive_icon_background: "#FFFFFF"  # colore di sfondo (puoi cambiarlo)
-  adaptive_icon_foreground: "assets/brand/skillup_logo.png"
+
+  # obbligatorio (fallback generale)
+  image_path: "assets/brand/logotype.png"
+
+  # iOS (se non lo metti, usa image_path)
+  image_path_ios: "assets/brand/logotype.png"
+
+  # Android adaptive icon
+  adaptive_icon_background: "assets/brand/back_logotype.png"
+  adaptive_icon_foreground: "assets/brand/logotype.png"
+
+  min_sdk_android: 21
+
+  adaptive_icon_foreground_scale_factor: 0.4
