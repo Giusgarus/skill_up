@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -625,10 +626,7 @@ class _HomePageState extends State<HomePage> {
               height: 270, // 👈 un po’ più lungo per coprire il summary
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Color(0xFFFF9A9E),
-                    Color(0xFFFAD0C4),
-                  ],
+                  colors: [Color(0xFFFF9A9E), Color(0xFFFAD0C4)],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
@@ -806,7 +804,8 @@ class _Header extends StatelessWidget {
         _SidePillButton(
           onTap: onProfileTap,
           isLeft: true,
-          asset: 'assets/icons/profile_icon.png',
+          asset: profileImage == null ? 'assets/icons/profile_icon.png' : null,
+          image: profileImage,
         ),
 
         // centro flessibile
@@ -816,8 +815,10 @@ class _Header extends StatelessWidget {
               onTap: onMonthTap,
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 child: Text(
                   monthLabel,
                   maxLines: 1,
@@ -858,6 +859,17 @@ class _SidePillButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget visual = image != null
+        ? ClipOval(
+            child: Image(
+              image: image!,
+              width: 44,
+              height: 44,
+              fit: BoxFit.cover,
+            ),
+          )
+        : Image.asset(asset!, width: 40, height: 40, fit: BoxFit.contain);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -878,12 +890,7 @@ class _SidePillButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: Image.asset(
-          asset!,          // ✅ ora carichi sempre il PNG
-          width: 40,
-          height: 40,
-          fit: BoxFit.contain,
-        ),
+        child: visual,
       ),
     );
   }
@@ -1017,11 +1024,7 @@ class _DailyTasksCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // quante “fasce” devono essere accese (25% ciascuna)
-    final int filledLevels = completionPercent == 0
-        ? 0
-        : (completionPercent / 25).ceil();
-
+    final double completionFraction = (completionPercent / 100).clamp(0.0, 1.0);
     final Color? starTint = medalTintForType(medalType);
 
     // ✅ qui salvi il contenitore in una variabile
@@ -1054,66 +1057,67 @@ class _DailyTasksCard extends StatelessWidget {
           const SizedBox(height: 18),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // 🔹 Colonna barre
-              SizedBox(
-                width: 130,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: List.generate(4, (index) {
-                    final reversedIndex = 3 - index;
-                    final isActive = reversedIndex < filledLevels;
-                    return Padding(
-                      padding: EdgeInsets.only(bottom: index == 3 ? 0 : 10),
-                      child: _SummaryLevelBar(isActive: isActive),
-                    );
-                  }),
+              Expanded(
+                child: Center(
+                  child: SizedBox(
+                    width: 150,
+                    height: 220,
+                    child: _TaskProgressWave(progress: completionFraction),
+                  ),
                 ),
               ),
-              const SizedBox(width: 30),
-
-              // 🔹 Percentuale + medaglia
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$completionPercent%',
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: 78,
-                    height: 78,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xFF3F3F3F),
-                    ),
-                    alignment: Alignment.center,
-                    child: medalType == MedalType.none
-                        ? SvgPicture.asset(
-                      'assets/icons/blank_star_icon.svg',
-                      width: 78,
-                      height: 78,
-                      fit: BoxFit.contain,
-                    )
-                        : SizedBox(
-                      width: 78,
-                      height: 78,
-                      child: SvgPicture.asset(
-                        medalAssetForType(medalType),
-                        fit: BoxFit.contain,
-                        colorFilter: starTint != null
-                            ? ColorFilter.mode(starTint, BlendMode.srcIn)
-                            : null,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Text(
+                        '$completionPercent%',
+                        style: Theme.of(context).textTheme.displaySmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                            ),
                       ),
-                    ),
+                      const SizedBox(height: 24),
+                      Container(
+                        width: 84,
+                        height: 84,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFF3F3F3F),
+                        ),
+                        alignment: Alignment.center,
+                        child: medalType == MedalType.none
+                            ? SvgPicture.asset(
+                                'assets/icons/blank_star_icon.svg',
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.contain,
+                              )
+                            : SizedBox(
+                                width: 72,
+                                height: 72,
+                                child: SvgPicture.asset(
+                                  medalAssetForType(medalType),
+                                  fit: BoxFit.contain,
+                                  colorFilter: starTint != null
+                                      ? ColorFilter.mode(
+                                          starTint,
+                                          BlendMode.srcIn,
+                                        )
+                                      : null,
+                                ),
+                              ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ],
           ),
@@ -1122,86 +1126,196 @@ class _DailyTasksCard extends StatelessWidget {
     );
 
     // ✅ qui ritorni il card wrappato nel GestureDetector
-    return GestureDetector(
-      onLongPress: onLongPress,
-      child: card,
-    );
+    return GestureDetector(onLongPress: onLongPress, child: card);
   }
 }
 
-class _SummaryLevelBar extends StatelessWidget {
-  const _SummaryLevelBar({required this.isActive});
+class _TaskProgressWave extends StatefulWidget {
+  const _TaskProgressWave({required this.progress});
 
-  final bool isActive;
+  final double progress;
 
-  static const _fillDuration = Duration(milliseconds: 520);
-  static const _curve = Curves.easeOutCubic;
+  @override
+  State<_TaskProgressWave> createState() => _TaskProgressWaveState();
+}
+
+class _TaskProgressWaveState extends State<_TaskProgressWave>
+    with SingleTickerProviderStateMixin {
+  static const _fillDuration = Duration(milliseconds: 620);
+  static const _waveDuration = Duration(milliseconds: 4200);
+
+  late final AnimationController _waveController;
+
+  @override
+  void initState() {
+    super.initState();
+    _waveController = AnimationController(vsync: this, duration: _waveDuration)
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    _waveController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 120,
-      height: 26,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Stack(
-          children: [
-            // base grigia
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD8D8D8),
-                  borderRadius: BorderRadius.circular(10),
+    final double clampedProgress = widget.progress.clamp(0.0, 1.0);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF8EF),
+        borderRadius: BorderRadius.circular(36),
+        border: Border.all(
+          color: const Color(0xFF9DD8B0).withValues(alpha: 0.6),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: TweenAnimationBuilder<double>(
+                  duration: _fillDuration,
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0, end: clampedProgress),
+                  builder: (context, animatedValue, _) {
+                    return AnimatedBuilder(
+                      animation: _waveController,
+                      builder: (context, __) {
+                        return CustomPaint(
+                          painter: _WaveFillPainter(
+                            progress: animatedValue,
+                            waveValue: _waveController.value,
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
               ),
-            ),
-            // riempimento animato
-            AnimatedPositioned(
-              duration: _fillDuration,
-              curve: _curve,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              right: isActive ? 0 : 120,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF3BC259), Color(0xFF63DE77)],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            // bagliore bianco per dare l'idea di energia
-            IgnorePointer(
-              child: AnimatedOpacity(
-                duration: _fillDuration,
-                curve: _curve,
-                opacity: isActive ? 0.25 : 0,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: 0.35,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white.withValues(alpha: 0.8),
-                            Colors.white.withValues(alpha: 0.0),
-                          ],
-                        ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.15),
+                          Colors.transparent,
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class _WaveFillPainter extends CustomPainter {
+  const _WaveFillPainter({required this.progress, required this.waveValue});
+
+  final double progress;
+  final double waveValue;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double normalized = progress.clamp(0.0, 1.0);
+    if (normalized <= 0) {
+      return;
+    }
+
+    final double fillHeight = size.height * normalized;
+    final double baseY = size.height - fillHeight;
+    final double calmFactor = (1 - normalized);
+    final bool isFull = normalized >= 0.999;
+
+    final Rect shaderRect = Rect.fromLTWH(
+      0,
+      math.max(0, baseY - 20),
+      size.width,
+      size.height,
+    );
+    final Paint fillPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [Color(0xFF0F9F4B), Color(0xFF6DE087)],
+      ).createShader(shaderRect);
+
+    if (isFull) {
+      canvas.drawRect(Offset.zero & size, fillPaint);
+      return;
+    }
+
+    final double waveHeight = 2 + (8 * calmFactor);
+    final double crestOffset = waveHeight * 0.35;
+    final double waveLength = size.width * (1.1 + calmFactor * 0.6);
+    final double phase = waveValue * 2 * math.pi;
+    const int steps = 32;
+
+    final Path bodyPath = Path()
+      ..moveTo(0, size.height)
+      ..lineTo(0, baseY);
+
+    for (int i = 0; i <= steps; i++) {
+      final double x = size.width * i / steps;
+      final double sineValue = math.sin((2 * math.pi * x / waveLength) + phase);
+      final double pointY = (baseY + crestOffset + sineValue * waveHeight)
+          .clamp(0.0, size.height);
+      bodyPath.lineTo(x, pointY);
+    }
+
+    bodyPath
+      ..lineTo(size.width, size.height)
+      ..close();
+
+    canvas.drawPath(bodyPath, fillPaint);
+
+    final Paint crestPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withValues(alpha: 0.35);
+
+    final Path crestPath = Path();
+    for (int i = 0; i <= steps; i++) {
+      final double x = size.width * i / steps;
+      final double sineValue = math.sin((2 * math.pi * x / waveLength) + phase);
+      final double pointY = (baseY + sineValue * waveHeight).clamp(
+        0.0,
+        size.height,
+      );
+      if (i == 0) {
+        crestPath.moveTo(x, pointY);
+      } else {
+        crestPath.lineTo(x, pointY);
+      }
+    }
+
+    canvas.drawPath(crestPath, crestPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveFillPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.waveValue != waveValue;
   }
 }
 
