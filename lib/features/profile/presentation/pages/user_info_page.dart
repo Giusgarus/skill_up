@@ -737,6 +737,21 @@ class _LabeledDropdownPill extends StatelessWidget {
       color: Colors.black,
     );
 
+    final normalizedItems = <String>[];
+    final seen = <String>{};
+    for (final item in items) {
+      if (seen.add(item)) {
+        normalizedItems.add(item);
+      }
+    }
+
+    String? normalizedValue = value;
+    if (normalizedValue != null && !seen.contains(normalizedValue)) {
+      // Inject legacy value so DropdownButton has a matching option.
+      normalizedItems.insert(0, normalizedValue);
+      seen.add(normalizedValue);
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -749,13 +764,13 @@ class _LabeledDropdownPill extends StatelessWidget {
           child: SizedBox(
             height: _pillHeight,
             child: DropdownButtonFormField<String>(
-              value: value,
+              value: normalizedValue,
               isExpanded: true,
               alignment: Alignment.center, // testo centrato nel box
               icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
               style: _pillTextStyle(context),
               decoration: _pillDecoration(''),
-              items: items
+              items: normalizedItems
                   .map(
                     (e) => DropdownMenuItem<String>(
                   value: e,
