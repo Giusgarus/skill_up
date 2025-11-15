@@ -497,21 +497,35 @@ class _HomePageState extends State<HomePage> {
 
   int get _currentStreak {
     int streak = 0;
-    DateTime day = _today;
+    DateTime day = dateOnly(_today);
 
+    // 1) Controllo se oggi ha una medaglia
+    final completedToday = _completedTasksByDay[day];
+    final bool hasMedalToday = completedToday != null &&
+        medalForProgress(
+          completed: completedToday,
+          total: _totalTasks,
+        ) != MedalType.none;
+
+    // 2) Se oggi NON ha medaglia, partiamo da ieri
+    if (!hasMedalToday) {
+      day = day.subtract(const Duration(days: 1));
+    }
+
+    // 3) Camminiamo all'indietro finché troviamo giorni con medaglia
     while (true) {
-      // se non abbiamo info su quel giorno, o è nel futuro, stop
       final completed = _completedTasksByDay[day];
       if (completed == null) {
-        break;
+        break; // fuori range / futuro
       }
 
-      // calcoliamo la medaglia di quel giorno
-      final medal = medalForProgress(completed: completed, total: _totalTasks);
+      final medal = medalForProgress(
+        completed: completed,
+        total: _totalTasks,
+      );
 
-      // se non c'è medaglia (none), lo streak si interrompe
       if (medal == MedalType.none) {
-        break;
+        break; // appena troviamo un giorno "fallito" lo streak si ferma
       }
 
       streak++;
