@@ -51,7 +51,7 @@ For enterprise features and LLM API usage you need to configure your access keys
 - **Mostafa Eid** – AI Back‑end Developer
 - **Simone Frassinelli** – Test Engineer / QA Engineer
 - **Gianluca Panzani** – Server Back‑end Developer
-- **Sofia Satuf** – Front‑end Developer
+- **Sophia Satuf** – Front‑end Developer
 
 ## Contributing
 
