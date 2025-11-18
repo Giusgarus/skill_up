@@ -428,7 +428,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 # -----------------------
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8001))
     debug_mode = os.getenv("ENV", "production") != "production"
     logger.info("Starting FastAPI server on port %d, debug=%s", port, debug_mode)
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=debug_mode)
