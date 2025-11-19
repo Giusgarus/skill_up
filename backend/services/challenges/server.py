@@ -189,35 +189,88 @@ def _requests_session_with_retries(retries: int = 2, backoff_factor: float = 0.3
     s.mount("http://", HTTPAdapter(max_retries=retry))
     return s
 
-def _minimal_validate_challenge(resp: Dict[str,Any]) -> Tuple[bool, str]:
-    """Return (is_valid, error_message_or_empty)."""
+def _minimal_validate_challenge(resp: Dict[str, Any]) -> Tuple[bool, str]:
+    print(resp)
+    """
+    Return (is_valid, error_message_or_empty).
+    Validates structure: 
+    {
+       "challenges_count": int,
+       "challenges_list": [ ... ]
+    }
+    """
     if not isinstance(resp, dict):
-        return False, "Response is not an object"
-    required = ["challenge_title", "challenge_description", "duration_minutes", "difficulty"]
-    for k in required:
-        if k not in resp:
-            return False, f"Missing key: {k}"
-    if not isinstance(resp["challenge_title"], str) or not isinstance(resp["challenge_description"], str):
-        return False, "Title/description types invalid"
-    if not isinstance(resp["duration_minutes"], (int, float)):
-        return False, "duration_minutes must be numeric"
-    if resp["difficulty"] not in ("Easy", "Medium", "Hard"):
-        return False, "difficulty invalid"
+        return False, "Response is not a JSON object"
+
+    # 1. Validate Top Level Keys
+    if "challenges_list" not in resp or not isinstance(resp["challenges_list"], list):
+        return False, "Missing or invalid 'challenges_list'"
+    
+    if "challenges_count" not in resp or not isinstance(resp["challenges_count"], int):
+        return False, "Missing or invalid 'challenges_count'"
+
+    if len(resp["challenges_list"]) == 0:
+        return False, "Challenge list is empty"
+
+    # 2. Validate Individual Challenge Objects
+    required_item_keys = ["challenge_title", "challenge_description", "duration_minutes", "difficulty"]
+    
+    for index, item in enumerate(resp["challenges_list"]):
+        # Check Keys
+        for k in required_item_keys:
+            if k not in item:
+                return False, f"Challenge #{index+1} missing key: {k}"
+        
+        # Check Types
+        if not isinstance(item["challenge_title"], str) or not isinstance(item["challenge_description"], str):
+            return False, f"Challenge #{index+1}: Title/description must be strings"
+            
+        if not isinstance(item["duration_minutes"], (int, float)):
+            return False, f"Challenge #{index+1}: duration_minutes must be numeric"
+            
+        # Check Logic
+        if item["difficulty"] not in ("Easy", "Medium", "Hard"):
+            # Optional: Auto-fix here or reject. We reject for strictness.
+            return False, f"Challenge #{index+1}: Invalid difficulty"
+
     return True, ""
 
 def send_json_to_llm_server(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    payload expected keys: "prompt" (str), optionally "level", "user_info" (dict, may contain history)
-    Returns: {"ok": True, "challenge": {...}} or {"ok": False, "error": "explain"}
+    payload expected keys: "goal" (str), "level", "history" (list)
+    Returns: {"ok": True, "result": {...}} or {"ok": False, "error": "explain"}
     """
     url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
+    
+    # --- DEBUG PRINT START ---
+    print(f"DEBUG: send_json_to_llm_server received keys: {list(payload.keys())}")
+    print(f"DEBUG: payload['goal'] raw value: '{payload.get('goal')}'")
+    # --- DEBUG PRINT END ---
+
+    # 1. Robust Goal Extraction
+    # We check if 'goal' exists and is not None/Empty. If it is, we try 'prompt'.
+    goal_text = payload.get("goal")
+    if not goal_text: 
+        goal_text = payload.get("prompt")
+
+    # 2. Robust History Extraction
+    history_data = payload.get("history")
+    if history_data is None:
+        history_data = payload.get("user_info", {}).get("history", [])
+
+    # 3. Prepare Body
+    # Ensure we don't convert None to "None" string.
+    final_goal_str = str(goal_text).strip() if goal_text else ""
+
     body = {
-        "goal": str(payload.get("prompt", "")).strip(),
-        "level": payload.get("level", "beginner") or "beginner",
-        "history": payload.get("user_info", {}).get("history", []) if isinstance(payload.get("user_info", {}), dict) else []
+        "goal": final_goal_str,
+        "level": payload.get("level", "Beginner"),
+        "history": history_data
     }
 
+    # 4. The Check that was failing
     if not body["goal"]:
+        logger.error(f"Validation Error: Goal came in as '{goal_text}', became '{final_goal_str}'")
         return {"ok": False, "error": "Empty goal/prompt provided"}
 
     headers = {"Content-Type": "application/json"}
@@ -233,7 +286,6 @@ def send_json_to_llm_server(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": f"LLM server unreachable: {str(e)}"}
 
     if resp.status_code != 200:
-        # try to include body for debugging but keep it small
         content_snippet = (resp.text[:500] + "...") if resp.text else ""
         logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
         return {"ok": False, "error": f"LLM server error ({resp.status_code})"}
@@ -244,62 +296,86 @@ def send_json_to_llm_server(payload: Dict[str, Any]) -> Dict[str, Any]:
         logger.error("LLM server returned non-json response: %s", resp.text[:500])
         return {"ok": False, "error": "Invalid JSON from LLM server"}
 
-    # If the LLM server returns an error-structured response, prefer that
     if isinstance(result, dict) and ("error" in result or "detail" in result):
         msg = result.get("error") or result.get("detail") or "LLM server reported an error"
         return {"ok": False, "error": f"LLM server: {msg}"}
 
-    # Minimal validation of the returned challenge
     is_valid, validation_error = _minimal_validate_challenge(result)
+    
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
         return {"ok": False, "error": f"Invalid LLM response: {validation_error}"}
 
-    return {"ok": True, "challenge": result}
+    return {"ok": True, "result": result}
 
 
-@router.post("/prompt", status_code = 200)
+@router.post("/prompt", status_code=200)
 def get_llm_response(payload: GeneratePlan) -> dict:
     token = payload.token
-    prompt = payload.plan
+    user_goal = payload.plan # Rename variable for clarity (this is the 'goal')
+    print("user_goal: ", user_goal)
+    # 1. Verify Session
     valid_token, user_id = session.verify_session(token)
     if not valid_token:
-        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
 
-    results = db.find_one(table_name = "users", filters = {"user_id": user_id}, projection = {"_id": False, "data": True})
+    # 2. Get User Data (Goal, Level, AND History)
+    results = db.find_one(
+        table_name="users", 
+        filters={"user_id": user_id}, 
+        projection={"_id": False, "data": True}
+    )
+    
     if results is None:
-        raise HTTPException(status_code = 402, detail = "Invalid user")
+        raise HTTPException(status_code=402, detail="Invalid user")
 
     user_info = results.get("data", {}) or {}
+    
+    # Extract History for Progression Context (Crucial for Gamification)
+    # Assuming history is stored in user_info under 'history' or 'past_challenges'
+    user_history = user_info.get("history", []) 
 
-    # Prepare LLM payload
+    # 3. Prepare Payload for LLM Server
+    # We send raw data; the LLM server constructs the System/User prompts
     llm_payload = {
-        "prompt": prompt,
-        # optionally forward user's preferred level if available
-        "level": user_info.get("preferred_level", "beginner"),
-        "user_info": user_info
+        "goal": user_goal,
+        "level": user_info.get("level", "Beginner"), # Default to beginner if missing
+        "history": user_history[-3:], # Only send last 3 to save tokens/context
+        "user_info": user_info 
     }
-
+    print("The Payload")
+    print("THE PAYLOAD: ", llm_payload)
+    # 4. Call the AI Service
+    # Expected response: {"ok": True, "result": {"challenges_count": 1, "challenges_list": [...]}}
     llm_resp = send_json_to_llm_server(llm_payload)
 
     if not llm_resp.get("ok"):
-        # map client errors to 502/503 as appropriate
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error("LLM service error for user %s: %s", user_id, err_msg)
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
 
-    challenge = llm_resp["challenge"]
+    # 5. Extract and Validate the AI Data
+    # NOTE: Adjust key "result" below to match whatever key your send_json_to_llm_server returns
+    generated_data = llm_resp.get("result") or llm_resp.get("challenge") 
 
-    # Update user's DB record with the generated plan/challenge and metadata
+    is_valid, err = _minimal_validate_challenge(generated_data)
+    if not is_valid:
+        logger.error(f"Validation failed for user {user_id}: {err}")
+        # Fallback logic could go here (return hardcoded challenge)
+        raise HTTPException(status_code=502, detail=f"AI generated invalid format: {err}")
+
+    # 6. Update Database
+    # We store the whole structure now
     try:
         update_doc = {
-            "last_generated_challenge": {
-                "challenge": challenge,
-                "prompt": prompt,
+            "last_generated_data": {
+                "challenges": generated_data["challenges_list"], # Store the list
+                "meta": generated_data["challenges_count"],
+                "original_goal": user_goal,
                 "generated_at": int(time.time())
             }
         }
-        # Example DB update call - adapt to your db wrapper's API
+        
         db.update_one(
             table_name="users",
             filters={"user_id": user_id},
@@ -307,9 +383,6 @@ def get_llm_response(payload: GeneratePlan) -> dict:
         )
     except Exception as e:
         logger.exception("Failed to update DB for user %s: %s", user_id, e)
-        # DB update failure is non-fatal for the immediate response, but warn the caller
-        # and still return the generated challenge
-        # choose whether to return 500 or 200 with warning; here we return 200 but log it.
-    
-    # Return the challenge as-is (or normalize/mask if needed)
-    return {"ok": True, "challenge": challenge}
+
+    # 7. Return to Frontend
+    return {"ok": True, "data": generated_data}
