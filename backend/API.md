@@ -49,7 +49,8 @@ user_collection.create_index("user_id", unique=True)
     "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
     "title": "<string>",
-    "score": "<int>"
+    "score": "<int>",
+    "description": "<string>",
   },
   .
   .
@@ -68,6 +69,9 @@ tasks_collection.create_index(["task_id"], unique=True)
     "plan_id": "<string>",
     "user_id": "<string>",
     "n_tasks": "<int>",
+    "repsonses": ["json_i"],
+    "prompts": ["string_i"],
+    "deleted": "<bool>",
     "n_tasks_done": "<int>",
     "created_at": "<ISO datetime UTC>",
     "expected_complete": "<ISO datetime UTC>", // Scadenza data dall'utente

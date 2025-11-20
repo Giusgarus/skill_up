@@ -7,11 +7,13 @@ from pydantic import BaseModel, StringConstraints, constr
 from typing import Annotated, Any, Set
 from pymongo.errors import PyMongoError
 from pymongo import ReturnDocument
+from utils.session import *
 
 MIN_HEAP_K_LEADER = 10
 ALLOWED_DATA_FIELDS: Set[str] = {"score", "name", "surname", "height", "weight", "sex", "profile_pic"} | {f"info{i}" for i in range(20)}
 MIN_LEN_ADF = 1
 MAX_LEN_ADF = 200000
+DIFFICULTY_MAP = {"easy" : 1, "medium" : 3, "hard": 5}
 ALLOWED_DATA_MEDALS: Set[str] = {"B","S","G","None"}
 
 RecordStr = Annotated[
@@ -39,8 +41,23 @@ class GeneratePlan(BaseModel):
     token: str
     plan: str
 
+class DeletePlan(BaseModel):
+    token: str
+    plan_id: str
+
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
+@router.post("/plan/delete", status_code = 200)
+def delete_plan(payload: DeletePlan) -> dict:
+    plan_id = payload.plan_id
+    ok, user_id = session.verify_session(payload.token)
+    if not ok or not user_id:
+        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+    res = db.update_one("plans", keys_dict = {"user_id" : user_id, "plan_id" : plan_id}, values_dict = {"$set" : {"deleted" : True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code = 402, detail = "Invalid Plan in Tables")
+    return {"valid" : True}
+    
 @router.post("/task_done", status_code = 200)
 def task_done(payload: SetTaskDone) -> dict:
     ok, user_id = session.verify_session(payload.token)
@@ -132,30 +149,6 @@ def update_user(payload: UpdateUserBody):
         raise HTTPException(status_code = 403, detail = "Database error")
     return {"updated": True, "new_record": payload.record}
 
-# @router.post("/prompt", status_code = 200)
-# def get_llm_response(payload: GeneratePlan) -> dict:
-#     token = payload.token
-#     prompt = payload.plan
-#     valid_token, user_id = session.verify_session(token)
-#     if not valid_token:
-#         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-#     results = db.find_one(table_name = "users", filters = {"user_id": user_id}, projection = {"_id": False, "data": True})
-#     if results == None:
-#         raise HTTPException(status_code = 402, detail = "Invalid user")
-#     user_info = results["data"] if results else None
-#     if not user_info:
-#         user_info = {}
-#     # Qui dovresti implementare la chiamata al server di mos --> HTTP/JSON request
-#     llm_response = send_json_to_llm_server({
-#         "prompt": prompt,
-#         "user_info": user_info
-#     })
-#     # Controlla risposta e aggiorna tutti i campi necessari 
-#     # ...
-#     # Create Medals with the empty timestamps
-#     return {}
-
-
 # add imports near the top of your file
 import os
 import time
@@ -195,34 +188,34 @@ def _minimal_validate_challenge(resp: Dict[str, Any]) -> Tuple[bool, str]:
     Return (is_valid, error_message_or_empty).
     Validates structure: 
     {
-       "challenges_count": int,
-       "challenges_list": [ ... ]
+       "n_tasks": int,
+       "task_list": { "date" :  {"title", "description", "difficulty"}, "date2" : {...} ... }
     }
     """
     if not isinstance(resp, dict):
         return False, "Response is not a JSON object"
 
     # 1. Validate Top Level Keys
-    if "challenges_list" not in resp or not isinstance(resp["challenges_list"], list):
-        return False, "Missing or invalid 'challenges_list'"
+    if "task_list" not in resp or not isinstance(resp["task_list"], list):
+        return False, "Missing or invalid 'task_list'"
     
-    if "challenges_count" not in resp or not isinstance(resp["challenges_count"], int):
-        return False, "Missing or invalid 'challenges_count'"
+    if "n_tasks" not in resp or not isinstance(resp["n_tasks"], int):
+        return False, "Missing or invalid 'n_tasks'"
 
-    if len(resp["challenges_list"]) == 0:
+    if len(resp["task_list"]) == 0:
         return False, "Challenge list is empty"
 
     # 2. Validate Individual Challenge Objects
-    required_item_keys = ["challenge_title", "challenge_description", "duration_minutes", "difficulty"]
+    required_item_keys = ["title", "description", "difficulty"]
     
-    for index, item in enumerate(resp["challenges_list"]):
+    for index, item in enumerate(resp["task_list"]):
         # Check Keys
         for k in required_item_keys:
             if k not in item:
                 return False, f"Challenge #{index+1} missing key: {k}"
         
         # Check Types
-        if not isinstance(item["challenge_title"], str) or not isinstance(item["challenge_description"], str):
+        if not isinstance(item["title"], str) or not isinstance(item["description"], str):
             return False, f"Challenge #{index+1}: Title/description must be strings"
             
         if not isinstance(item["duration_minutes"], (int, float)):
@@ -265,6 +258,7 @@ def send_json_to_llm_server(payload: Dict[str, Any]) -> Dict[str, Any]:
     body = {
         "goal": final_goal_str,
         "level": payload.get("level", "Beginner"),
+        "user_info" : payload["user_info"],
         "history": history_data
     }
 
@@ -317,30 +311,29 @@ def get_llm_response(payload: GeneratePlan) -> dict:
     # 1. Verify Session
     valid_token, user_id = session.verify_session(token)
     if not valid_token:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
-
+        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
     # 2. Get User Data (Goal, Level, AND History)
     results = db.find_one(
         table_name="users", 
         filters={"user_id": user_id}, 
-        projection={"_id": False, "data": True}
+        projection={"_id": False, "height": True, "weight" : True, "sex" : True, "gathered_info" : True, "repsonses" : True, "prompts" : True}
     )
-    
+    last_prompt = results["prompts"][-1]
+    last_response = results["repsonses"][-1]
+    history = {"last_prompt" : last_prompt, "last_response" : last_response}
+    # to do gathered dict
     if results is None:
-        raise HTTPException(status_code=402, detail="Invalid user")
-
-    user_info = results.get("data", {}) or {}
-    
-    # Extract History for Progression Context (Crucial for Gamification)
-    # Assuming history is stored in user_info under 'history' or 'past_challenges'
-    user_history = user_info.get("history", []) 
-
-    # 3. Prepare Payload for LLM Server
+        raise HTTPException(status_code = 402, detail = "Invalid user projection")
+    user_info = {"height" : results["height"], 
+                 "weight" : results["weight"], 
+                 "sex" : results["sex"], 
+                 "infos" : results["gathered_info"]}
+    # 3. Prepare Payload for LLM
     # We send raw data; the LLM server constructs the System/User prompts
     llm_payload = {
         "goal": user_goal,
         "level": user_info.get("level", "Beginner"), # Default to beginner if missing
-        "history": user_history[-3:], # Only send last 3 to save tokens/context
+        "history": history, # Only send last 3 to save tokens/context
         "user_info": user_info 
     }
     print("The Payload")
@@ -353,36 +346,27 @@ def get_llm_response(payload: GeneratePlan) -> dict:
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error("LLM service error for user %s: %s", user_id, err_msg)
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
-
-    # 5. Extract and Validate the AI Data
-    # NOTE: Adjust key "result" below to match whatever key your send_json_to_llm_server returns
+    
     generated_data = llm_resp.get("result") or llm_resp.get("challenge") 
 
-    is_valid, err = _minimal_validate_challenge(generated_data)
-    if not is_valid:
-        logger.error(f"Validation failed for user {user_id}: {err}")
-        # Fallback logic could go here (return hardcoded challenge)
-        raise HTTPException(status_code=502, detail=f"AI generated invalid format: {err}")
-
-    # 6. Update Database
+    # 5. Update Database
     # We store the whole structure now
-    try:
-        update_doc = {
-            "last_generated_data": {
-                "challenges": generated_data["challenges_list"], # Store the list
-                "meta": generated_data["challenges_count"],
-                "original_goal": user_goal,
-                "generated_at": int(time.time())
-            }
-        }
-        
-        db.update_one(
-            table_name="users",
-            filters={"user_id": user_id},
-            update={"$set": update_doc}
-        )
-    except Exception as e:
-        logger.exception("Failed to update DB for user %s: %s", user_id, e)
-
-    # 7. Return to Frontend
+    plan_id = db.find_one_and_update("users", 
+                                     keys_dict = {"user_id" : user_id}, 
+                                     return_policy = ReturnDocument.BEFORE, 
+                                     values_dict = {"$inc" : {"plan_id" : 1}}, 
+                                     projection = {"_id" : False, "plan_id" : True})
+    task_id = 0
+    plan_struct = {"plan_id" : plan_id, 
+                   "user_id" : user_id, 
+                   "n_tasks" : generated_data["challenges_count"], 
+                   "reponses": [generated_data],
+                   "prompts": [user_goal],
+                   "deleted": False,
+                   "n_tasks_done": 0,
+                   "created_at": timing.now_iso(),
+                   "expected_complete": None,
+                   }
+    db.insert("plans", {})
+    # 6. Return to Frontend
     return {"ok": True, "data": generated_data}
