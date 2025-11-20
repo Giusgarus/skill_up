@@ -86,6 +86,7 @@ class _HomePageState extends State<HomePage> {
   String _newHabitGoal = '';
   final Set<int> _newHabitSelectedDays = <int>{};
   ImageProvider? _profileImage;
+  bool _isBuildingPlan = false;
 
   @override
   void initState() {
@@ -634,6 +635,35 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _createPlan(String goal) async {
+    try {
+      // TODO: qui in futuro chiamerai il tuo backend con `goal`
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+      setState(() {
+        _isBuildingPlan = false;
+      });
+
+      // Apri per ora una pagina vuota di placeholder
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const _AiPlanPage(),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isBuildingPlan = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to build the plan right now.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final monthLabel = monthNames[_selectedDay.month];
@@ -777,7 +807,6 @@ class _HomePageState extends State<HomePage> {
                 setState(() {
                   _isAddHabitOpen = true;
                   _newHabitGoal = '';
-                  _newHabitSelectedDays.clear();
                 });
               },
             ),
@@ -787,38 +816,31 @@ class _HomePageState extends State<HomePage> {
           if (_isAddHabitOpen)
             _AddHabitOverlay(
               goalText: _newHabitGoal,
-              selectedDays: _newHabitSelectedDays,
               onGoalChanged: (value) {
                 setState(() {
                   _newHabitGoal = value;
                 });
               },
-              onDayToggle: (index) {
-                setState(() {
-                  if (_newHabitSelectedDays.contains(index)) {
-                    _newHabitSelectedDays.remove(index);
-                  } else {
-                    _newHabitSelectedDays.add(index);
-                  }
-                });
-              },
-              onSubmit: () {
+              onSubmit: (goal) {
                 FocusScope.of(context).unfocus();
                 setState(() {
                   _isAddHabitOpen = false;
-                  _newHabitGoal = '';
-                  _newHabitSelectedDays.clear();
+                  _isBuildingPlan = true;      // 👉 mostra overlay loading
                 });
+                _createPlan(goal);             // 👉 chiamata async
               },
               onClose: () {
                 FocusScope.of(context).unfocus();
                 setState(() {
                   _isAddHabitOpen = false;
                   _newHabitGoal = '';
-                  _newHabitSelectedDays.clear();
                 });
               },
             ),
+
+          // 7) overlay di loading AI
+          if (_isBuildingPlan)
+            const _BuildingPlanOverlay(),
         ],
       ),
     );
@@ -1508,36 +1530,34 @@ class _AddHabitButton extends StatelessWidget {
     return GestureDetector(
       onTap: onPressed,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 26),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(40),
+          borderRadius: BorderRadius.circular(50),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
+              color: Colors.black.withOpacity(0.20),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black,
-              ),
-              child: const Icon(Icons.add, color: Colors.white, size: 22),
+            Image.asset(
+              'assets/icons/+.png',
+              width: 28,
+              height: 28,
+              fit: BoxFit.contain,
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 18),
             Text(
-              'ADD NEW HABIT',
+              'ADD NEW GOAL',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: Colors.black,
-                letterSpacing: 1.4,
+                letterSpacing: 1.2,
               ),
             ),
           ],
@@ -1547,22 +1567,19 @@ class _AddHabitButton extends StatelessWidget {
   }
 }
 
+
 class _AddHabitOverlay extends StatefulWidget {
   const _AddHabitOverlay({
     required this.onClose,
     required this.goalText,
-    required this.selectedDays,
     required this.onGoalChanged,
-    required this.onDayToggle,
     required this.onSubmit,
   });
 
   final VoidCallback onClose;
   final String goalText;
-  final Set<int> selectedDays;
   final ValueChanged<String> onGoalChanged;
-  final ValueChanged<int> onDayToggle;
-  final VoidCallback onSubmit;
+  final ValueChanged<String> onSubmit;
 
   @override
   State<_AddHabitOverlay> createState() => _AddHabitOverlayState();
@@ -1613,12 +1630,10 @@ class _AddHabitOverlayState extends State<_AddHabitOverlay> {
           color: Colors.black.withValues(alpha: 0.55),
           child: Center(
             child: GestureDetector(
-              onTap: () {},
+              onTap: () {}, // blocca il tap sul contenuto
               child: _AddHabitOverlayContent(
                 controller: _controller,
-                selectedDays: widget.selectedDays,
-                onDayToggle: widget.onDayToggle,
-                onSubmit: widget.onSubmit,
+                onSubmit: (goal) => widget.onSubmit(goal),
               ),
             ),
           ),
@@ -1631,15 +1646,23 @@ class _AddHabitOverlayState extends State<_AddHabitOverlay> {
 class _AddHabitOverlayContent extends StatelessWidget {
   const _AddHabitOverlayContent({
     required this.controller,
-    required this.selectedDays,
-    required this.onDayToggle,
     required this.onSubmit,
   });
 
   final TextEditingController controller;
-  final Set<int> selectedDays;
-  final ValueChanged<int> onDayToggle;
-  final VoidCallback onSubmit;
+  final ValueChanged<String> onSubmit;
+
+  void _applySuggestion(String text) {
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _handleSuggestionTap(String text) {
+    _applySuggestion(text);
+    onSubmit(text);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1656,6 +1679,7 @@ class _AddHabitOverlayContent extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Testo in alto
           TextField(
             controller: controller,
             autofocus: true,
@@ -1664,59 +1688,107 @@ class _AddHabitOverlayContent extends StatelessWidget {
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
               hintText:
-                  'Write here what is the goal that you want to achive ...',
+              'Write here the general goal that you want to achive ...',
               border: InputBorder.none,
               isCollapsed: false,
+            ),
+            style: textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: Colors.black,
+              height: 1.3,
             ),
           ),
           const SizedBox(height: 8),
           Container(height: 1.5, color: Colors.black.withValues(alpha: 0.1)),
           const SizedBox(height: 18),
+
+          // Titolo suggerimenti
           Text(
-            'In which days you will be available?',
+            'Goal suggestions based on your interests:',
             style: textTheme.bodyLarge?.copyWith(
-              color: Colors.black.withValues(alpha: 0.7),
+              color: Colors.black.withValues(alpha: 0.8),
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(
-              weekdayShortLabels.length,
-              (index) => _DayChip(
-                label: weekdayShortLabels[index],
-                isActive: selectedDays.contains(index),
-                onTap: () => onDayToggle(index),
-              ),
-            ),
+
+          // ✅ Griglia 2x2 a larghezza fissa
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // 2 colonne, uno spazio orizzontale da 12 tra le card
+              final double itemWidth = (constraints.maxWidth - 12) / 2;
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: itemWidth,
+                    child: _SuggestionChip(
+                      label: 'Track daily expenses',
+                      onTap: () => _handleSuggestionTap('Track daily expenses'),
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _SuggestionChip(
+                      label: 'Sketch more',
+                      onTap: () => _handleSuggestionTap('Sketch more'),
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _SuggestionChip(
+                      label: 'Tid up the room',
+                      onTap: () => _handleSuggestionTap('Tid up the room'),
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _SuggestionChip(
+                      label: 'Limit social media usage',
+                      onTap: () => _handleSuggestionTap('Limit social media usage'),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
+
           const SizedBox(height: 28),
+
+          // ✅ Bottone con freccia più simile al mock
           Align(
             alignment: Alignment.center,
             child: GestureDetector(
-              onTap: onSubmit,
+              onTap: () {
+                final goal = controller.text.trim();
+                if (goal.isEmpty) return; // per ora, se vuoto non facciamo niente
+                onSubmit(goal);
+              },
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 34,
-                  vertical: 18,
-                ),
+                width: 130,
+                height: 70,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(26),
+                  borderRadius: BorderRadius.circular(20),
                   gradient: const LinearGradient(
                     colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.15),
+                      color: Colors.black.withValues(alpha: 0.18),
                       blurRadius: 10,
                       offset: const Offset(0, 6),
                     ),
                   ],
                 ),
+                alignment: Alignment.center,
                 child: SvgPicture.asset(
                   'assets/icons/send_icon.svg',
-                  width: 38,
-                  height: 38,
+                  width: 45,
+                  height: 45,
                   colorFilter: const ColorFilter.mode(
                     Colors.white,
                     BlendMode.srcIn,
@@ -1731,47 +1803,134 @@ class _AddHabitOverlayContent extends StatelessWidget {
   }
 }
 
-class _DayChip extends StatelessWidget {
-  const _DayChip({required this.label, this.isActive = false, this.onTap});
+
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({
+    required this.label,
+    this.onTap,
+  });
 
   final String label;
-  final bool isActive;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final gradient = isActive
-        ? const LinearGradient(colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)])
-        : const LinearGradient(colors: [Color(0xFFEEEEEE), Color(0xFFEEEEEE)]);
-
-    final textColor = isActive
-        ? Colors.white
-        : Colors.black.withValues(alpha: 0.6);
+    final textTheme = Theme.of(context).textTheme;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.all(1.6),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          gradient: gradient,
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: textColor,
+          borderRadius: BorderRadius.circular(30),
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
           ),
         ),
+        child: SizedBox(
+          height: 60, // ✅ stessa altezza per tutti i bottoni
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown, // ✅ rimpicciolisce il testo se non entra
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withValues(alpha: 0.85),
+                    height: 1.2,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _BuildingPlanOverlay extends StatelessWidget {
+  const _BuildingPlanOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.35),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'assets/icons/loading_response.gif',
+                  width: 84,
+                  height: 84,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(width: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 180),
+                  child: Text(
+                    'The AI is\nbuilding your plan ...',
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _AiPlanPage extends StatelessWidget {
+  const _AiPlanPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Your plan'),
+      ),
+      body: const Center(
+        child: Text('Here we will show the generated plan.'),
       ),
     );
   }
