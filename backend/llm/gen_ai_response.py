@@ -44,17 +44,11 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 SAFETY_SETTINGS = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
 }
-# SAFETY_SETTINGS = {
-#     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-#     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-#     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-#     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-# }
 
 model = genai.GenerativeModel(
     "gemini-2.5-flash",
@@ -236,8 +230,8 @@ def validate_and_sanitize_input(goal: str, level: str, history: List[Dict[str, A
     if not isinstance(history, list):
         history = []
     # If we have history we keep the last 20 requests by the user. I think we won't have that many!!!
-    if len(history) > 20:
-        history = history[-20:]
+    if len(history) > 3:
+        history = history[-1:]
 
     sanitized_history = []
     for item in history:
@@ -261,7 +255,7 @@ def validate_and_sanitize_input(goal: str, level: str, history: List[Dict[str, A
 def validate_ai_response(response_data: dict):
     # CORRECTED KEYS (Fixed spelling: 'challenges')
     required_keys = ["challenges_list", "challenges_count"]
-    required_secondary_keys = ["challenge_title", "challenge_description", "duration_minutes", "difficulty"]
+    required_secondary_keys = ["challenge_title", "challenge_description", "difficulty"]
     
     length = 0
     full_answer_txt = ""
@@ -287,16 +281,11 @@ def validate_ai_response(response_data: dict):
             return False, "Invalid title format"
         if not isinstance(challenge["challenge_description"], str):
             return False, "Invalid description format"
-        if not isinstance(challenge["duration_minutes"], (int, float)):
-            return False, "Invalid duration format"
         if not isinstance(challenge["difficulty"], str):
             return False, "Invalid difficulty format"
 
         # Validate Values / Constraints
-        # Duration clamp
-        if not (5 <= challenge["duration_minutes"] <= 30):
-            challenge["duration_minutes"] = max(5, min(30, challenge["duration_minutes"]))
-        
+    
         # Difficulty fallback
         if challenge["difficulty"] not in ["Easy", "Medium", "Hard"]:
             challenge["difficulty"] = "Easy"
@@ -304,7 +293,7 @@ def validate_ai_response(response_data: dict):
         # Length Truncation (CRITICAL FIX: referencing 'challenge', not 'response_data')
         if len(challenge["challenge_title"]) > 100:
             challenge["challenge_title"] = challenge["challenge_title"][:100]
-        if len(challenge["challenge_description"]) > 500:
+        if len(challenge["challenge_description"]) > 200:
             challenge["challenge_description"] = challenge["challenge_description"][:500]
 
         # Accumulate text for safety check
@@ -349,7 +338,6 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
             {
                 "challenge_title": "Quest Name (Max 60 chars)",
                 "challenge_description": "Specific instructions on what to do. 1-2 sentences.",
-                "duration_minutes": 10,
                 "difficulty": "Easy" 
             }
         ]
@@ -397,7 +385,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 10024,
+                "max_output_tokens": 2524,
                 "response_mime_type": "application/json",
             }
         )

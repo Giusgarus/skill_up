@@ -189,7 +189,7 @@ def _minimal_validate_challenge(resp: Dict[str, Any]) -> Tuple[bool, str]:
     Validates structure: 
     {
        "n_tasks": int,
-       "task_list": { "date" :  {"title", "description", "difficulty"}, "date2" : {...} ... }
+       "tasks": { "date" :  {"title", "description", "difficulty"}, "date2" : {...} ... }
     }
     """
     if not isinstance(resp, dict):
