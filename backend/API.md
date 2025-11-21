@@ -46,11 +46,13 @@ user_collection.create_index("user_id", unique=True)
   {
     "task_id": "<string>",
     "plan_id": "<string>",
+    "user_id": "<string>",
+    "title": "<string>",
+    "description": "<string>",
+    "difficulty": "<int>",
+    "score": "<int>",
     "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
-    "title": "<string>",
-    "score": "<int>",
-    "description": "<string>",
   },
   .
   .
@@ -73,6 +75,8 @@ tasks_collection.create_index(["task_id"], unique=True)
     "prompts": ["string_i"],
     "deleted": "<bool>",
     "n_tasks_done": "<int>",
+    "responses": ["response_i"],
+    "prompts": ["prompt_i"],
     "created_at": "<ISO datetime UTC>",
     "expected_complete": "<ISO datetime UTC>", // Scadenza data dall'utente
     // Ci serve un task di un giorno X ? user_id -> prendo tutti i plan_id tale per cui tempo attuale compreso tra [created_at, expected_complete] dei plan che escono, da li prendo la lista tasks indicizzato dal dizionario per giorno. Possiamo anche mettere un campo finished plan true false e fare un filter volendo filtrare senza le date, non so quanto convenga.

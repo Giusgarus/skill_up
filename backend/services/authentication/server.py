@@ -88,7 +88,7 @@ def register(payload: RegisterInput) -> dict:
         "height": None,
         "weight": None,
         "sex": None,
-        "gathered_infos": [None for _ in range(20)],
+        "gathered_info": [None for _ in range(20)],
         "medals": {},
     }
     try:

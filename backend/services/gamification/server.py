@@ -2,13 +2,17 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import backend.db.database as db
 import backend.utils.session as session
-router = APIRouter(prefix="/services/gamification", tags=["gamification"])
+
 
 class GetLeaderboard(BaseModel):
     token: str
 
+
+router = APIRouter(prefix="/services/gamification", tags=["gamification"])
+
+
 @router.post("/leaderboard", status_code = 200)
-def leaderboard_get(payload: GetLeaderboard) -> dict:
+def get_leaderboard(payload: GetLeaderboard) -> dict:
     ok, _ = session.verify_session(payload.token)
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")

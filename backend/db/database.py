@@ -1,5 +1,5 @@
 from typing import Optional
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
@@ -86,7 +86,7 @@ def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> l
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_one_and_update(table_name: str, values_dict: dict, return_policy, keys_dict: dict = {}, projection: dict = None) -> list:
+def find_one_and_update(table_name: str, keys_dict: dict, values_dict: dict, projection: dict = None, return_policy = ReturnDocument.BEFORE) -> list:
     db = connect_to_db()
     try:
         proj = db[table_name].find_one_and_update(filter = keys_dict, update = values_dict, projection = projection, return_document = return_policy)
