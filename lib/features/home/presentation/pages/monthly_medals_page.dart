@@ -7,6 +7,10 @@ import '../../domain/medal_utils.dart';
 import '../../../auth/data/storage/auth_session_storage.dart';
 import 'statistics_page.dart';
 
+////////////////////////////// test
+//import 'plan_overview.dart';
+/////////////////////////////
+
 class MonthlyMedalsPage extends StatefulWidget {
   MonthlyMedalsPage({super.key, DateTime? initialMonth})
       : initialMonth = initialMonth ?? DateTime.now();
@@ -173,6 +177,7 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
                     onTap: () {
                       Navigator.of(context).pushNamed(
                         StatisticsPage.route,
+                        //PlanOverviewPage.route,
                         arguments: {
                           'year': _displayedMonth.year,
                           'month': _displayedMonth.month,

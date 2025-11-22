@@ -8,6 +8,7 @@ import 'features/home/presentation/pages/home_page.dart';
 import 'features/home/presentation/pages/statistics_page.dart';
 import 'features/profile/presentation/pages/user_info_page.dart';
 import 'features/settings/presentation/pages/settings_page.dart';
+import 'features/home/presentation/pages/plan_overview.dart';
 
 /// Root app that defines routes and theme.
 class SkillUpApp extends StatelessWidget {
@@ -27,6 +28,7 @@ class SkillUpApp extends StatelessWidget {
         HomePage.route: (_) => const HomePage(),
         UserInfoPage.route: (_) => const UserInfoPage(),
         SettingsPage.route: (_) => const SettingsPage(),
+        PlanOverviewPage.route: (_) => const PlanOverviewPage(),
         MonthlyMedalsPage.route: (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           final initial = args is DateTime ? args : DateTime.now();

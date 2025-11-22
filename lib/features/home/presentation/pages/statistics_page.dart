@@ -106,7 +106,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   _StatsCard(
                     levelInfo: levelInfo,
                     totals: totals,
-                    cardTextStyle: cardTextStyle,
+                    cardTextStyle: cardTextStyle, streak: 0,
                   ),
                   const SizedBox(height: 32),
                   Text('Year', style: sectionTitle),
@@ -127,31 +127,17 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   const SizedBox(height: 32),
                   Text('Month trend', style: sectionTitle),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DropdownPill<String>(
-                          value: 'All tasks',
-                          items: const ['All tasks'],
-                          labelBuilder: (value) => value,
-                          onChanged: (_) {},
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _DropdownPill<int>(
-                          value: _selectedMonth,
-                          items: List<int>.generate(12, (index) => index + 1),
-                          labelBuilder: (value) => monthNames[value],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _selectedMonth = value;
-                            });
-                          },
-                        ),
-                      ),
-                    ],
+
+                  _DropdownPill<int>(
+                    value: _selectedMonth,
+                    items: List<int>.generate(12, (index) => index + 1),
+                    labelBuilder: (value) => monthNames[value],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _selectedMonth = value;
+                      });
+                    },
                   ),
                   const SizedBox(height: 18),
                   _MonthTrendChart(
@@ -227,15 +213,22 @@ class _StatsCard extends StatelessWidget {
   const _StatsCard({
     required this.levelInfo,
     required this.totals,
+    required this.streak,
     required this.cardTextStyle,
   });
 
   final LevelProgress levelInfo;
   final MedalTotals totals;
+  final int streak;
   final TextStyle? cardTextStyle;
 
   @override
   Widget build(BuildContext context) {
+    // Style for the main data numbers (e.g., '30', '23', '12', '56')
+    final dataTextStyle = cardTextStyle?.copyWith(fontSize: 28);
+    // Style for the labels (e.g., 'Level:', 'Medals:')
+    final labelTextStyle = cardTextStyle?.copyWith(fontSize: 20, fontStyle: FontStyle.italic);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
@@ -243,12 +236,12 @@ class _StatsCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.85),
+          color: Colors.white.withOpacity(0.85),
           width: 2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withOpacity(0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -257,52 +250,95 @@ class _StatsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Level: ${levelInfo.level}',
-            style: cardTextStyle ??
-                const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '(${levelInfo.currentXp}/${levelInfo.xpTarget}xp)',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF444444),
-                ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Medals: ${totals.gold} ${totals.silver} ${totals.bronze}',
-            style: cardTextStyle ??
-                const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black,
-                ),
-          ),
-          const SizedBox(height: 12),
+          // Row for Level and Medals (Two Columns)
           Row(
+            // Use CrossAxisAlignment.start for proper alignment if items have different heights
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _medalIcon(MedalType.gold),
-              const SizedBox(width: 12),
-              _medalIcon(MedalType.silver),
-              const SizedBox(width: 12),
-              _medalIcon(MedalType.bronze),
+              // --- LEFT COLUMN: LEVEL ---
+              Expanded(
+                // Use a Flex of 3 for Level, giving it more space than Medals if needed
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        style: labelTextStyle,
+                        children: <TextSpan>[
+                          const TextSpan(text: 'Level:'),
+                          TextSpan(text: '\n${levelInfo.level}', style: dataTextStyle),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '(${levelInfo.currentXp}/${levelInfo.xpTarget}xp)',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF444444),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // --- RIGHT COLUMN: MEDALS ---
+              Expanded(
+                // Use a Flex of 4 for Medals to ensure it gets enough width for the three icons/numbers
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Medals:', style: labelTextStyle),
+                    const SizedBox(height: 8),
+                    Row(
+                      // IMPORTANT: Reduce spacing between medal components
+                      children: [
+                        Text('${totals.gold}', style: dataTextStyle),
+                        const SizedBox(width: 2), // TIGHTER SPACING
+                        _medalIcon(MedalType.gold),
+                        const SizedBox(width: 8), // REDUCED GAP
+                        Text('${totals.silver}', style: dataTextStyle),
+                        const SizedBox(width: 2), // TIGHTER SPACING
+                        _medalIcon(MedalType.silver),
+                        const SizedBox(width: 8), // REDUCED GAP
+                        Text('${totals.bronze}', style: dataTextStyle),
+                        const SizedBox(width: 2), // TIGHTER SPACING
+                        _medalIcon(MedalType.bronze),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // --- STREAK ROW (Full Width) ---
+          RichText(
+            text: TextSpan(
+              style: dataTextStyle?.copyWith(fontStyle: FontStyle.italic),
+              children: <TextSpan>[
+                const TextSpan(text: 'Streak: ', style: TextStyle(fontStyle: FontStyle.italic)),
+                TextSpan(text: '$streak days', style: dataTextStyle),
+                const TextSpan(
+                  text: ' 🔥',
+                  style: TextStyle(fontSize: 24),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
+  // Adjusted medalIcon size
   Widget _medalIcon(MedalType medal) {
     return SizedBox(
-      width: 40,
-      height: 40,
+      width: 28,
+      height: 28,
       child: SvgPicture.asset(
         medalAssetForType(medal),
         colorFilter: medalTintForType(medal) == null
@@ -329,17 +365,18 @@ class _DropdownPill<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      // Adjusted vertical padding to make it thinner
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.85),
+          color: Colors.white.withOpacity(0.85),
           width: 2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withOpacity(0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -348,23 +385,39 @@ class _DropdownPill<T> extends StatelessWidget {
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
           value: value,
-          icon: const Icon(Icons.arrow_drop_down),
-          elevation: 2,
+          // Use the default icon, slightly larger
+          icon: const Icon(Icons.arrow_drop_down, color: Colors.black, size: 28),
+          elevation: 0,
           borderRadius: BorderRadius.circular(20),
           onChanged: onChanged,
+          // Aligning text to the center vertically within the pill
+          selectedItemBuilder: (context) {
+            return items.map((item) {
+              return Align(
+                alignment: Alignment.center,
+                child: Text(
+                  labelBuilder(item),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              );
+            }).toList();
+          },
           items: items
               .map(
                 (item) => DropdownMenuItem<T>(
-                  value: item,
-                  child: Text(
-                    labelBuilder(item),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black,
-                    ),
-                  ),
+              value: item,
+              child: Text(
+                labelBuilder(item),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
                 ),
-              )
+              ),
+            ),
+          )
               .toList(),
         ),
       ),
