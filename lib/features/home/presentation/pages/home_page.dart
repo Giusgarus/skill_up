@@ -84,7 +84,6 @@ class _HomePageState extends State<HomePage> {
   late DateTime _selectedDay;
   bool _isAddHabitOpen = false;
   String _newHabitGoal = '';
-  final Set<int> _newHabitSelectedDays = <int>{};
   ImageProvider? _profileImage;
   bool _isBuildingPlan = false;
 
@@ -780,7 +779,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
-                const SizedBox(height: 28),
+                const SizedBox(height: 10),
 
                 // 👇 tutto il resto con il padding 24 come prima
                 Padding(
@@ -898,10 +897,12 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
-      fontWeight: FontWeight.w700,
+    final titleStyle = const TextStyle(
+      fontFamily: 'FredokaOne',
+      fontSize: 44,
+      fontWeight: FontWeight.w900,
+      fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
       color: Colors.white,
-      letterSpacing: 1.1,
     );
 
     return Row(
@@ -926,7 +927,7 @@ class _Header extends StatelessWidget {
                   monthLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: titleStyle ?? const TextStyle(fontSize: 36),
+                  style: titleStyle,
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -1010,10 +1011,13 @@ class _CalendarStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+    const TextStyle labelStyle = TextStyle(
+      fontFamily: 'FredokaOne',   // stesso font del mese
+      fontSize: 22,
+      fontWeight: FontWeight.w700,
+      fontStyle: FontStyle.italic,
       color: Colors.white,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 1,
+      letterSpacing: 1.0,
     );
 
     return Column(
@@ -1027,7 +1031,7 @@ class _CalendarStrip extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         Row(
           children: [
             for (final date in weekDays)
@@ -1067,10 +1071,15 @@ class _CalendarDayBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-      color: isSelected ? const Color(0xFFFFA726) : Colors.white,
+    final TextStyle textStyle = TextStyle(
+      fontFamily: 'FredokaOne',        // stesso font
+      fontSize: 26,
       fontWeight: FontWeight.w700,
+      fontStyle: FontStyle.italic,
+      color: isSelected ? const Color(0xFFFFA726) : Colors.white,
+      letterSpacing: 1.0,
     );
+
 
     final bool hasMedal = medal != MedalType.none;
     final Color? starTint = hasMedal ? medalTintForType(medal) : null;
@@ -1151,14 +1160,17 @@ class _DailyTasksCard extends StatelessWidget {
           Center(
             child: Text(
               'DAILY TASKS',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: TextStyle(
+                fontFamily: 'FredokaOne',
+                fontSize: 32,
                 fontWeight: FontWeight.w900,
                 color: Colors.black,
+                fontStyle: FontStyle.italic,
                 letterSpacing: 1.2,
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1187,12 +1199,15 @@ class _DailyTasksCard extends StatelessWidget {
                 children: [
                   Text(
                     '$completionPercent%',
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                    style: const TextStyle(
+                      fontFamily: 'FredokaOne',
+                      fontSize: 42,
                       fontWeight: FontWeight.w900,
+                      fontStyle: FontStyle.italic,
                       color: Colors.black,
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 6),
                   Container(
                     width: 78,
                     height: 78,
@@ -1368,13 +1383,16 @@ class _StreakBanner extends StatelessWidget {
         children: [
           Text(
             '$streakDays DAYS STREAK',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+            style: TextStyle(
+              fontFamily: 'FugazOne',
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
               color: Colors.black,
-              letterSpacing: 0.6,
+              fontStyle: FontStyle.italic,
+              letterSpacing: 1.2,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 3),
           Image.asset(
             'assets/icons/fire_streak_icon.png', // 👈 percorso dell’immagine
             width: 60,
@@ -1554,9 +1572,12 @@ class _AddHabitButton extends StatelessWidget {
             const SizedBox(width: 18),
             Text(
               'ADD NEW GOAL',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: TextStyle(
+                fontFamily: 'FugazOne',
+                fontSize: 28,
                 fontWeight: FontWeight.w900,
                 color: Colors.black,
+                fontStyle: FontStyle.italic,
                 letterSpacing: 1.2,
               ),
             ),
@@ -1666,7 +1687,6 @@ class _AddHabitOverlayContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -1687,15 +1707,25 @@ class _AddHabitOverlayContent extends StatelessWidget {
             minLines: 1,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
-              hintText:
-              'Write here the general goal that you want to achive ...',
+              hintText: 'Write here the general goal that you want to achive ...',
               border: InputBorder.none,
               isCollapsed: false,
+              hintStyle: TextStyle(
+                fontFamily: 'FiraCode',   // 👈 stesso font del testo
+                fontSize: 18,
+                fontWeight: FontWeight.w400,
+                height: 1.35,
+                letterSpacing: 0.2,
+                color: Color(0x99000000), // nero al 60% circa
+              ),
             ),
-            style: textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
+            style: const TextStyle(
+              fontFamily: 'FiraCode',     // 👈 Fira Code “pulito”
+              fontSize: 18,
+              fontWeight: FontWeight.w400,
+              height: 1.35,               // spaziatura fra le righe come nello screenshot
+              letterSpacing: 0.2,         // leggerissimo tracking da monospace
               color: Colors.black,
-              height: 1.3,
             ),
           ),
           const SizedBox(height: 8),
@@ -1705,9 +1735,13 @@ class _AddHabitOverlayContent extends StatelessWidget {
           // Titolo suggerimenti
           Text(
             'Goal suggestions based on your interests:',
-            style: textTheme.bodyLarge?.copyWith(
-              color: Colors.black.withValues(alpha: 0.8),
-              fontWeight: FontWeight.w600,
+            style: const TextStyle(
+              fontFamily: 'FiraCode',     // 👈 Fira Code “pulito”
+              fontSize: 18,
+              fontWeight: FontWeight.w400,
+              height: 1.35,               // spaziatura fra le righe come nello screenshot
+              letterSpacing: 0.2,         // leggerissimo tracking da monospace
+              color: Colors.black,
             ),
           ),
           const SizedBox(height: 16),

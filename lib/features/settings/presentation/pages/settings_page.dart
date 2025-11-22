@@ -84,11 +84,6 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final titleStyle = theme.textTheme.displaySmall?.copyWith(
-      fontWeight: FontWeight.w700,
-      color: Colors.white,
-      letterSpacing: 1.1,
-    );
     final buttonTextStyle = theme.textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w700,
       color: Colors.black,
@@ -156,8 +151,10 @@ class _SettingsPageState extends State<SettingsPage> {
                                 child: Text(
                                   'SETTINGS',
                                   style: const TextStyle(
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'FredokaOne',
+                                    fontSize: 40,
+                                    fontWeight: FontWeight.w900,
+                                    fontStyle: FontStyle.italic,
                                     color: Colors.white,
                                   ),
                                 ),

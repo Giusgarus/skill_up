@@ -23,7 +23,6 @@ class AuthScaffold extends StatelessWidget {
       body: Container(
         // gradient già preso dai tuoi theme/colors
         decoration: const BoxDecoration(
-          // AppGradients.authBackground, se lo stai usando
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -48,7 +47,15 @@ class AuthScaffold extends StatelessWidget {
                     else
                       Text(
                         title.toUpperCase(),
-                        style: Theme.of(context).textTheme.headlineLarge,
+                        style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          fontFamily: 'FugazOne',
+                          fontSize: 44,
+                          fontWeight: FontWeight.w900,
+                          fontStyle: FontStyle.italic,
+                          letterSpacing: 0.2,
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
 
                     const SizedBox(height: 16),

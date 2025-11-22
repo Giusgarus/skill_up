@@ -350,11 +350,6 @@ class _UserInfoPageState extends State<UserInfoPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final titleStyle = theme.textTheme.displaySmall?.copyWith(
-      fontWeight: FontWeight.w700,
-      color: Colors.white,
-      letterSpacing: 1.1,
-    );
     final emphasisStyle = theme.textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w600,
       color: Colors.black,
@@ -389,12 +384,14 @@ class _UserInfoPageState extends State<UserInfoPage> {
                     Expanded(
                       child: Text(
                         'USER INFO',
-                        style: titleStyle ??
-                            const TextStyle(
-                              fontSize: 36,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
+                        textAlign: TextAlign.left,
+                        style: const TextStyle(
+                          fontFamily: 'FredokaOne',
+                          fontSize: 40,
+                          fontWeight: FontWeight.w900,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],

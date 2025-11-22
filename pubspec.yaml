@@ -53,3 +53,16 @@ flutter_launcher_icons:
   min_sdk_android: 21
 
   adaptive_icon_foreground_scale_factor: 0.4
+
+fonts:
+  - family: FugazOne
+    fonts:
+      - asset: assets/fonts/FugazOne-Regular.ttf
+
+  - family: FredokaOne
+    fonts:
+      - asset: assets/fonts/FredokaOne-Regular.ttf
+
+  - family: FiraCode
+    fonts:
+      - asset: assets/fonts/FiraCode-VariableFont_wght.ttf

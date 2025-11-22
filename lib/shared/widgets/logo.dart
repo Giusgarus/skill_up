@@ -5,7 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 /// If your asset is already white, you can omit the [colorFilter].
 class AppLogo extends StatelessWidget {
   final double height;
-  const AppLogo({super.key, this.height = 88});
+  const AppLogo({super.key, this.height = 200});
 
   @override
   Widget build(BuildContext context) {

@@ -368,7 +368,7 @@ class _RegisterPageState extends State<RegisterPage> {
               validator: (v) {
                 final value = v?.trim() ?? '';
                 final regex =
-                RegExp(r'^[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,}$');
+                RegExp(r'^[\w.\-]+@[\w.\-]+\.[a-zA-Z]{2,}$');
                 if (value.isEmpty) return 'E-mail required';
                 if (!regex.hasMatch(value)) return 'Invalid e-mail';
                 return null;
@@ -585,7 +585,6 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
   String? _weight;
   String? _height;
 
-  int _currentStep = 0;
 
   final List<String> _areas = const [
     'Health',
@@ -779,19 +778,23 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
         Text(
           'WE NEED SOME',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         Text(
           'INFOS',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         const SizedBox(height: 22),
@@ -860,58 +863,63 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
           ),
         ),
 
-        const SizedBox(height: 26),
+        const SizedBox(height: 90),
 
         // Bottone NEXT separato, come nel mock
-        Align(
-          alignment: Alignment.center,
-          child: GestureDetector(
-            onTap: _goFromBasicInfoToNotice,
-            child: Container(
-              width: 230,
-              height: 72,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF9A9E), Color(0xFFFFCF91)],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Align(
+            alignment: Alignment.centerRight, // 👈 ALLINEATO A DESTRA
+            child: GestureDetector(
+              onTap: _goFromBasicInfoToNotice,
+              child: Container(
+                width: 230,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF9A9E), Color(0xFFFFCF91)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.20),
+                      blurRadius: 10,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.20),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Row(
-                children: [
-                  Text(
-                    'NEXT',
-                    style: textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.black,
-                      letterSpacing: 1.2,
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Row(
+                  children: [
+                    Text(
+                        'NEXT',
+                        style: TextStyle(
+                          fontFamily: 'FugazOne',
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
+                          fontStyle: FontStyle.italic,
+                          letterSpacing: 1.2,
+                        ),
                     ),
-                  ),
-                  const Spacer(),
-                  SvgPicture.asset(
-                    'assets/icons/send_icon.svg',
-                    width: 36,
-                    height: 36,
-                    colorFilter: const ColorFilter.mode(
-                      Colors.black,
-                      BlendMode.srcIn,
+                    const Spacer(),
+                    SvgPicture.asset(
+                      'assets/icons/send_icon.svg',
+                      width: 40,
+                      height: 40,
+                      colorFilter: const ColorFilter.mode(
+                        Colors.black,
+                        BlendMode.srcIn,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
+        )
       ],
     );
   }
@@ -1057,10 +1065,12 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
         Text(
           'WHAT DO YOU\nWANT TO IMPROVE:',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 37,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         const SizedBox(height: 8),
@@ -1121,12 +1131,12 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
                 children: [
                   Text(
                     'NEXT',
-                    style: textTheme.titleLarge?.copyWith(
+                    style: const TextStyle(
+                      fontFamily: 'FugazOne',
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
                       fontStyle: FontStyle.italic,
                       color: Colors.black,
-                      letterSpacing: 1.2,
-                      fontSize: 25,
                     ),
                   ),
                   const Spacer(),
@@ -1158,19 +1168,23 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
         Text(
           'IMPORTANT',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         Text(
           'NOTICE',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         const SizedBox(height: 18),
@@ -1229,10 +1243,12 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
                   alignment: Alignment.center,
                   child: Text(
                     'SKIP',
-                    style: textTheme.titleLarge?.copyWith(
+                    style: const TextStyle(
+                      fontFamily: 'FugazOne',
+                      fontSize: 28,
                       fontWeight: FontWeight.w900,
+                      fontStyle: FontStyle.italic,
                       color: Colors.black,
-                      letterSpacing: 1.2,
                     ),
                   ),
                 ),
@@ -1264,11 +1280,12 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
                     children: [
                       Text(
                         'NEXT',
-                        style: textTheme.titleLarge?.copyWith(
+                        style: const TextStyle(
+                          fontFamily: 'FugazOne',
+                          fontSize: 28,
                           fontWeight: FontWeight.w900,
                           fontStyle: FontStyle.italic,
                           color: Colors.black,
-                          letterSpacing: 1.2,
                         ),
                       ),
                       const Spacer(),
@@ -1307,19 +1324,23 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
         Text(
           'MORE ABOUT',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         Text(
           'YOU',
           textAlign: TextAlign.center,
-          style: textTheme.displaySmall?.copyWith(
+          style: const TextStyle(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         const SizedBox(height: 18),
@@ -1392,7 +1413,9 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
               padding: const EdgeInsets.only(left: 40), // 👈 aggiunge margine verso il centro
               child: Text(
                 '$questionIndex/10',
-                style: textTheme.titleLarge?.copyWith(
+                style: const TextStyle(
+                  fontFamily: 'FugazOne',
+                  fontSize: 28,
                   fontWeight: FontWeight.w900,
                   fontStyle: FontStyle.italic,
                   color: Colors.black,
@@ -1425,11 +1448,12 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
                   children: [
                     Text(
                       isLast ? 'FINISH' : 'NEXT',
-                      style: textTheme.titleLarge?.copyWith(
+                      style: const TextStyle(
+                        fontFamily: 'FugazOne',
+                        fontSize: 28,
                         fontWeight: FontWeight.w900,
                         fontStyle: FontStyle.italic,
                         color: Colors.black,
-                        letterSpacing: 1.2,
                       ),
                     ),
                     const Spacer(),

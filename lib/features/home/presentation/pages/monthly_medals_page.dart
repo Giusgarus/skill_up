@@ -237,25 +237,23 @@ class _MonthSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
-      fontWeight: FontWeight.w700,
+    const monthStyle = TextStyle(
+      fontFamily: 'FredokaOne',
+      fontSize: 44,
+      fontWeight: FontWeight.w900,
+      fontStyle: FontStyle.italic,
       color: Colors.white,
-      letterSpacing: 1.1,
+      letterSpacing: 1.2,
     );
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _ArrowButton(isLeft: true, onTap: onPrevious),
-        const SizedBox(width: 20), //
+        const SizedBox(width: 20),
         Text(
           monthLabel,
-          style: textStyle ??
-              const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
+          style: monthStyle,
         ),
         const SizedBox(width: 20),
         _ArrowButton(isLeft: false, onTap: onNext),
@@ -269,29 +267,25 @@ class _WeekdayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
-      fontWeight: FontWeight.w600,
-      color: Colors.white,
-    );
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: weekdayShortLabels
-          .map(
+      children: weekdayShortLabels.map(
             (label) => Expanded(
           child: Center(
             child: Text(
               label,
-              style: labelStyle ??
-                  const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+              style: const TextStyle(
+                fontFamily: 'FredokaOne',
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic,
+                color: Colors.white,
+                letterSpacing: 1.0,
+              ),
             ),
           ),
         ),
-      )
-          .toList(),
+      ).toList(),
     );
   }
 }
@@ -350,18 +344,15 @@ class _DayCell extends StatelessWidget {
           // numero sopra (come nel mockup)
           Text(
             dayLabel,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+            style: const TextStyle(
+              fontFamily: 'FredokaOne',
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.italic,
               color: Colors.white,
-              fontSize: 13,
-            ) ??
-                const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
+            ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 2),
           // medaglia più grande
           SizedBox(
             width: 40,
