@@ -14,9 +14,9 @@ import '../../utils/password_validator.dart';
 import '../../utils/notification_registration.dart';
 import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 import 'package:skill_up/shared/widgets/likert_circle.dart';
-import 'dart:convert';
 import 'package:skill_up/features/profile/data/user_profile_info_storage.dart';
 import 'package:skill_up/features/profile/data/profile_api.dart';
+import '../../data/services/gathering_api.dart';
 
 class RegisterPage extends StatefulWidget {
   static const route = '/register';
@@ -35,6 +35,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _sessionStorage = AuthSessionStorage();
   final UserProfileInfoStorage _profileInfoStorage = UserProfileInfoStorage.instance;
   final ProfileApi _profileApi = ProfileApi();
+  final GatheringApi _gatheringApi = GatheringApi();
   bool _loading = false;
   bool _obscurePassword = true;
   PasswordValidationResult _passwordStatus = evaluatePassword('');
@@ -61,6 +62,7 @@ class _RegisterPageState extends State<RegisterPage> {
     _pwdC.dispose();
     _authApi.close();
     _profileApi.close();
+    _gatheringApi.close();
     super.dispose();
   }
 
@@ -227,6 +229,8 @@ class _RegisterPageState extends State<RegisterPage> {
       debugPrint('Height: ${onboardingResult.height}');
     }
 
+    await _submitOnboardingData(onboardingResult);
+
     // ===== STEP 3: SALVO LE INFO PROFILO (username, età, ecc.) =====
     try {
       final session = await _sessionStorage.readSession();
@@ -295,27 +299,6 @@ class _RegisterPageState extends State<RegisterPage> {
             value: onboardingResult.height!,
           );
         }
-
-        // risposte questionario SOLO se non ha skippato
-        if (!onboardingResult.skippedQuestions &&
-            onboardingResult.answers.isNotEmpty) {
-          final encoded = jsonEncode(
-            onboardingResult.answers
-                .map((k, v) => MapEntry(k.toString(), v)),
-          );
-
-          await _profileInfoStorage.setField(
-            session.username,
-            'onboarding_answers',
-            encoded,
-          );
-
-          await _profileApi.updateField(
-            token: session.token,
-            field: 'onboarding_answers',
-            value: encoded,
-          );
-        }
       }
     } catch (e) {
       if (kDebugMode) {
@@ -327,6 +310,38 @@ class _RegisterPageState extends State<RegisterPage> {
     Navigator.pushReplacementNamed(context, HomePage.route);
   }
 
+
+  Future<void> _submitOnboardingData(_OnboardingResult onboardingResult) async {
+    final session = await _sessionStorage.readSession();
+    if (session == null) {
+      return;
+    }
+
+    // interests
+    if (onboardingResult.interests.isNotEmpty) {
+      await _gatheringApi.sendInterests(
+        token: session.token,
+        interests: onboardingResult.interests.toList(),
+      );
+    }
+
+    // questions (only if answered)
+    if (!onboardingResult.skippedQuestions &&
+        onboardingResult.answers.isNotEmpty) {
+      const totalQuestions = 10;
+      final answersList = List<int>.filled(totalQuestions, 0);
+      onboardingResult.answers.forEach((index, value) {
+        final zeroBased = index - 1;
+        if (zeroBased >= 0 && zeroBased < totalQuestions) {
+          answersList[zeroBased] = value;
+        }
+      });
+      await _gatheringApi.sendQuestions(
+        token: session.token,
+        answers: answersList,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -82,8 +82,20 @@ class ProfileApi {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return const ProfileApiResult.success();
       }
+      String? serverMessage;
+      if (response.body.isNotEmpty) {
+        try {
+          final Map<String, dynamic> body =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          serverMessage = (body['detail'] ?? body['error'] ?? body['message'])
+              as String?;
+        } catch (_) {
+          // ignore
+        }
+      }
       return ProfileApiResult.error(
-        'Failed to update $targetDescription (${response.statusCode}).',
+        serverMessage ??
+            'Failed to update $targetDescription (${response.statusCode}).',
       );
     } on SocketException catch (_) {
       return const ProfileApiResult.error('No internet connection.');

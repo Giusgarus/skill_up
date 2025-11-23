@@ -25,6 +25,8 @@ class DailyTask {
     required this.title,
     required this.description,
     required this.cardColor,
+    required this.planId,
+    required this.deadline,
     this.textColor = Colors.black,
     this.isCompleted = false,
   });
@@ -32,6 +34,8 @@ class DailyTask {
   final String id;
   final String title;
   final String description;
+  final int planId;
+  final DateTime deadline;
   final Color cardColor;
   final Color textColor;
   final bool isCompleted;
@@ -41,6 +45,8 @@ class DailyTask {
       id: id,
       title: title,
       description: description,
+      planId: planId,
+      deadline: deadline,
       cardColor: cardColor,
       textColor: textColor,
       isCompleted: isCompleted ?? this.isCompleted,
@@ -71,16 +77,19 @@ class _HomePageState extends State<HomePage> {
   bool _sessionInvalidated = false;
   bool _notificationsRegistered = false;
   bool _profileSyncScheduled = false;
+  bool _isFetchingPlan = false;
+  String? _planError;
   static const Duration _tokenRetryDelay = Duration(seconds: 12);
   static const String _serverLogoutMessage =
       'Il server ti ha disconnesso. Effettua di nuovo il login per continuare.';
   AuthSession? _session;
+  int? _activePlanId;
   late final DateTime _today;
   late final List<DateTime> _currentWeek;
-  late Map<DateTime, int?> _completedTasksByDay;
-  late final List<DailyTask> _taskCatalog;
+  Map<DateTime, int?> _completedTasksByDay = {};
+  final Map<DateTime, List<DailyTask>> _tasksByDay = {};
   final Map<DateTime, Map<String, bool>> _taskStatusesByDay = {};
-  late List<DailyTask> _tasks;
+  List<DailyTask> _tasks = const [];
   late DateTime _selectedDay;
   bool _isAddHabitOpen = false;
   String _newHabitGoal = '';
@@ -92,16 +101,12 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _medalRepository = MedalHistoryRepository.instance;
     _today = dateOnly(DateTime.now());
-    _taskCatalog = _seedTasks();
-    _tasks = _buildTasksForDay(_today);
     _currentWeek = _generateWeekFor(_today);
     _completedTasksByDay = _seedMonthlyCompletedTasks();
     _ensureWeekCoverage();
-    _seedMedalsFromCompletions();
     _selectedDay = _today;
     unawaited(_loadProfileImage());
-    unawaited(_loadPersistedTaskCompletions());
-    unawaited(_ensureSession());
+    unawaited(_ensureSession().then((_) => _loadActivePlan()));
     unawaited(_validateSessionWithRetry());
   }
 
@@ -124,6 +129,89 @@ class _HomePageState extends State<HomePage> {
     return _session;
   }
 
+  Future<void> _loadActivePlan() async {
+    final session = await _ensureSession();
+    if (session == null) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _isFetchingPlan = true;
+        _planError = null;
+      });
+    }
+    final result = await _taskApi.fetchActivePlan(token: session.token);
+    if (!mounted) return;
+    setState(() => _isFetchingPlan = false);
+    if (result.isSuccess && result.planId != null) {
+      _setPlanData(result.tasks, result.planId!);
+    } else {
+      setState(() {
+        _planError = result.errorMessage;
+        _tasks = const [];
+        _tasksByDay.clear();
+      });
+      if (_planError != null &&
+          !_planError!.toLowerCase().contains('no active plan')) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text(_planError!)),
+          );
+      }
+    }
+  }
+
+  void _setPlanData(List<RemoteTask> remoteTasks, int planId) {
+    final byDay = <DateTime, List<DailyTask>>{};
+    final statusByDay = <DateTime, Map<String, bool>>{};
+    final completedByDay = <DateTime, int?>{};
+
+    for (final task in remoteTasks) {
+      final day = dateOnly(task.deadline);
+      final entry = DailyTask(
+        id: task.taskId.toString(),
+        title: task.title,
+        description: task.description,
+        planId: planId,
+        deadline: task.deadline,
+        cardColor: _colorForDifficulty(task.difficulty),
+        isCompleted: task.isCompleted,
+      );
+      byDay.putIfAbsent(day, () => <DailyTask>[]).add(entry);
+      final statuses = statusByDay.putIfAbsent(day, () => <String, bool>{});
+      statuses[entry.id] = entry.isCompleted;
+    }
+
+    byDay.forEach((day, tasks) {
+      final completed = tasks.where((t) => t.isCompleted).length;
+      completedByDay[day] = completed;
+      final medal = medalForProgress(
+        completed: completed,
+        total: tasks.length,
+      );
+      _medalRepository.setMedalForDay(day, medal);
+    });
+
+    setState(() {
+      _activePlanId = planId;
+      _tasksByDay
+        ..clear()
+        ..addAll(byDay);
+      _taskStatusesByDay
+        ..clear()
+        ..addAll(statusByDay);
+      _completedTasksByDay = {
+        ..._completedTasksByDay,
+        ...completedByDay,
+      };
+      _ensureWeekCoverage();
+      _selectedDay = _selectedDay;
+      _tasks = _buildTasksForDay(_selectedDay);
+      _planError = null;
+    });
+  }
+
   List<DateTime> _generateWeekFor(DateTime anchor) {
     final monday = anchor.subtract(Duration(days: anchor.weekday - 1));
     return List<DateTime>.generate(
@@ -141,7 +229,7 @@ class _HomePageState extends State<HomePage> {
     final map = <DateTime, int?>{};
     for (var day = 1; day <= daysInMonth; day++) {
       final date = DateTime(monthStart.year, monthStart.month, day);
-      map[date] = date.isAfter(_today) ? null : 0;
+      map[date] = null;
     }
     return map;
   }
@@ -151,7 +239,7 @@ class _HomePageState extends State<HomePage> {
       final normalized = dateOnly(day);
       _completedTasksByDay.putIfAbsent(
         normalized,
-        () => normalized.isAfter(_today) ? null : 0,
+        () => null,
       );
     }
   }
@@ -161,9 +249,10 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     _completedTasksByDay.forEach((date, completed) {
-      final medal = completed == null
+      final total = _totalTasksForDay(date);
+      final medal = completed == null || total == 0
           ? MedalType.none
-          : medalForProgress(completed: completed, total: _totalTasks);
+          : medalForProgress(completed: completed, total: total);
       _medalRepository.setMedalForDay(date, medal);
     });
   }
@@ -405,61 +494,55 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  List<DailyTask> _seedTasks() {
-    return const [
-      DailyTask(
-        id: '1',
-        title: 'DRINK MORE',
-        description: 'You have to drink\n2 liters of water today',
-        cardColor: Color(0xFFE0E0E0),
-      ),
-      DailyTask(
-        id: '2',
-        title: 'WALKING',
-        description: 'Go outside and\nmake 30 minutes of walking',
-        cardColor: Color(0xFF5DE27C),
-      ),
-      DailyTask(
-        id: '3',
-        title: 'STRETCHING',
-        description: 'Stretch your body\nfor at least 10 minutes',
-        cardColor: Color(0xFFF1D16A),
-      ),
-      DailyTask(
-        id: '4',
-        title: 'STRETCHING2',
-        description: 'Stretch your body\nfor at least 10 minutes',
-        cardColor: Color(0xFFF1D16A),
-      ),
-      DailyTask(
-        id: '5',
-        title: 'STRETCHING3',
-        description: 'Stretch your body\nfor at least 10 minutes',
-        cardColor: Color(0xFFF1D16A),
-      ),
-      DailyTask(
-        id: '6',
-        title: 'STRETCHING4',
-        description: 'Stretch your body\nfor at least 10 minutes',
-        cardColor: Color(0xFFF1D16A),
-      ),
-    ];
-  }
-
   List<DailyTask> _buildTasksForDay(DateTime day) {
     final normalized = dateOnly(day);
+    final tasks = _tasksByDay[normalized] ?? const <DailyTask>[];
     final statuses = _taskStatusesByDay[normalized];
-    return _taskCatalog
-        .map((task) => task.copyWith(isCompleted: statuses?[task.id] ?? false))
+    if (statuses == null) {
+      return List<DailyTask>.from(tasks);
+    }
+    return tasks
+        .map(
+          (task) =>
+              task.copyWith(isCompleted: statuses[task.id] ?? task.isCompleted),
+        )
         .toList();
   }
 
-  int get _totalTasks => _taskCatalog.length;
+  int _totalTasksForDay(DateTime day) {
+    final normalized = dateOnly(day);
+    return _tasksByDay[normalized]?.length ?? 0;
+  }
+
+  Color _colorForDifficulty(int difficulty) {
+    if (difficulty >= 5) return const Color(0xFFFF9A9E);
+    if (difficulty >= 3) return const Color(0xFFF1D16A);
+    return const Color(0xFF9BE7A1);
+  }
+
+  String _medalCodeFor(MedalType medal) {
+    switch (medal) {
+      case MedalType.gold:
+        return 'G';
+      case MedalType.silver:
+        return 'S';
+      case MedalType.bronze:
+        return 'B';
+      case MedalType.none:
+        return 'None';
+    }
+  }
+
+  int get _totalTasks => _tasks.length;
 
   int get _completedToday => _tasks.where((task) => task.isCompleted).length;
 
   int _completedForDay(DateTime day) {
     final normalized = dateOnly(day);
+    final tasks = _tasksByDay[normalized];
+    if (tasks != null) {
+      return tasks.where((task) => task.isCompleted).length;
+    }
     final statuses = _taskStatusesByDay[normalized];
     if (statuses != null) {
       return statuses.values.where((value) => value).length;
@@ -479,7 +562,7 @@ class _HomePageState extends State<HomePage> {
       final completed = _completedForDay(normalized);
       map[normalized] = medalForProgress(
         completed: completed,
-        total: _totalTasks,
+        total: _totalTasksForDay(normalized),
       );
     }
     return map;
@@ -501,10 +584,11 @@ class _HomePageState extends State<HomePage> {
 
     // 1) Controllo se oggi ha una medaglia
     final completedToday = _completedTasksByDay[day];
+    final totalToday = _totalTasksForDay(day);
     final bool hasMedalToday = completedToday != null &&
         medalForProgress(
           completed: completedToday,
-          total: _totalTasks,
+          total: totalToday,
         ) != MedalType.none;
 
     // 2) Se oggi NON ha medaglia, partiamo da ieri
@@ -518,10 +602,14 @@ class _HomePageState extends State<HomePage> {
       if (completed == null) {
         break; // fuori range / futuro
       }
+      final total = _totalTasksForDay(day);
+      if (total == 0) {
+        break;
+      }
 
       final medal = medalForProgress(
         completed: completed,
-        total: _totalTasks,
+        total: total,
       );
 
       if (medal == MedalType.none) {
@@ -540,38 +628,47 @@ class _HomePageState extends State<HomePage> {
     if (normalizedDay != _today) {
       return;
     }
+    if (_activePlanId == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Create a plan to start completing tasks.'),
+          ),
+        );
+      return;
+    }
 
-    DailyTask? toggledTask;
+    final tasksForDay = _tasksByDay[normalizedDay];
+    if (tasksForDay == null) {
+      return;
+    }
+    final idx = tasksForDay.indexWhere((task) => task.id == id);
+    if (idx == -1) {
+      return;
+    }
+    final original = tasksForDay[idx];
+    final toggled = original.copyWith(isCompleted: !original.isCompleted);
     setState(() {
-      _tasks = _tasks.map((task) {
-        if (task.id == id) {
-          toggledTask = task.copyWith(isCompleted: !task.isCompleted);
-          return toggledTask!;
-        }
-        return task;
-      }).toList();
-      final updatedStatuses = Map<String, bool>.from(
-        _taskStatusesByDay[normalizedDay] ?? <String, bool>{},
-      );
-      if (toggledTask != null) {
-        updatedStatuses[id] = toggledTask!.isCompleted;
-      }
+      final updatedDay = List<DailyTask>.from(tasksForDay);
+      updatedDay[idx] = toggled;
+      _tasksByDay[normalizedDay] = updatedDay;
+      final updatedStatuses =
+          Map<String, bool>.from(_taskStatusesByDay[normalizedDay] ?? {});
+      updatedStatuses[id] = toggled.isCompleted;
       _taskStatusesByDay[normalizedDay] = updatedStatuses;
-
-      final completedCount = updatedStatuses.values
-          .where((value) => value)
-          .length;
+      _tasks = _buildTasksForDay(normalizedDay);
+      final completedCount =
+          updatedDay.where((task) => task.isCompleted).length;
       _completedTasksByDay[normalizedDay] = completedCount;
       final medal = medalForProgress(
         completed: completedCount,
-        total: _totalTasks,
+        total: updatedDay.length,
       );
       _medalRepository.setMedalForDay(normalizedDay, medal);
-      _seedMedalsFromCompletions();
     });
 
-    final newStatus = toggledTask?.isCompleted ?? false;
-    unawaited(_persistTaskStatus(normalizedDay, id, newStatus));
+    unawaited(_persistTaskStatus(normalizedDay, toggled));
   }
 
   void _selectDay(DateTime date) {
@@ -584,8 +681,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _persistTaskStatus(
     DateTime day,
-    String taskId,
-    bool isCompleted,
+    DailyTask task,
   ) async {
     final session = await _ensureSession();
     if (session == null) {
@@ -594,8 +690,8 @@ class _HomePageState extends State<HomePage> {
     try {
       await _taskCompletionStorage.setTaskStatus(
         day,
-        taskId,
-        isCompleted,
+        task.id,
+        task.isCompleted,
         session.username,
       );
     } catch (_) {
@@ -605,7 +701,14 @@ class _HomePageState extends State<HomePage> {
     try {
       final result = await _taskApi.markTaskDone(
         token: session.token,
-        taskId: taskId,
+        planId: task.planId,
+        taskId: int.tryParse(task.id) ?? 0,
+        medalTaken: _medalCodeFor(
+          medalForProgress(
+            completed: _completedForDay(day),
+            total: _totalTasksForDay(day),
+          ),
+        ),
       );
       if (!result.isSuccess && mounted) {
         ScaffoldMessenger.of(context)
@@ -635,21 +738,49 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _createPlan(String goal) async {
+    final session = await _ensureSession();
+    if (session == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No active session found. Please log in again.'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _isBuildingPlan = true;
+      _planError = null;
+    });
     try {
-      // TODO: qui in futuro chiamerai il tuo backend con `goal`
-      await Future.delayed(const Duration(seconds: 2));
+      final result = await _taskApi.createPlan(
+        token: session.token,
+        goal: goal,
+      );
 
       if (!mounted) return;
       setState(() {
         _isBuildingPlan = false;
       });
 
-      // Apri per ora una pagina vuota di placeholder
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const _AiPlanPage(),
-        ),
-      );
+      if (result.isSuccess && result.planId != null) {
+        _setPlanData(result.tasks, result.planId!);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Plan created successfully.')),
+          );
+      } else {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                result.errorMessage ?? 'Unable to build the plan right now.',
+              ),
+            ),
+          );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -838,7 +969,7 @@ class _HomePageState extends State<HomePage> {
             ),
 
           // 7) overlay di loading AI
-          if (_isBuildingPlan)
+          if (_isBuildingPlan || _isFetchingPlan)
             const _BuildingPlanOverlay(),
         ],
       ),

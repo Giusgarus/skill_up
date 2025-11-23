@@ -1,13 +1,14 @@
 const Map<String, String> _frontendToBackendProfileFields = {
-  'username': 'surname',
+  'username': 'username',
   'name': 'name',
   'gender': 'sex',
+  'age': 'age',
   'weight': 'weight',
   'height': 'height',
-  'about': 'info1',
-  'day_routine': 'info2',
-  'organized': 'info3',
-  'focus': 'info4',
+  'about': 'about',
+  'day_routine': 'day_routine',
+  'organized': 'organized',
+  'focus': 'focus',
 };
 
 final Map<String, String> _backendToFrontendProfileFields = {

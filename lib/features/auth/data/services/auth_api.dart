@@ -129,7 +129,8 @@ class AuthApi {
             );
           }
         }
-        final isValid = body?['valid'] == true;
+        final isValid =
+            body?['valid'] == true || body?['status'] == true;
         final username = body?['username'] as String?;
         if (isValid && username != null && username.trim().isNotEmpty) {
           return BearerCheckResult.valid(username.trim());
@@ -144,8 +145,17 @@ class AuthApi {
       if (response.statusCode == 401) {
         return const BearerCheckResult.invalid('Invalid session token.');
       }
+      String? message;
+      if (response.body.isNotEmpty) {
+        try {
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          message = body['detail'] as String?;
+        } catch (_) {
+          // ignore
+        }
+      }
       return BearerCheckResult.invalid(
-        'Unexpected status ${response.statusCode}.',
+        message ?? 'Unexpected status ${response.statusCode}.',
       );
     } on SocketException catch (_) {
       return const BearerCheckResult.error('Unable to reach the server.');
@@ -182,7 +192,8 @@ class AuthApi {
         }
       }
       if (response.statusCode == 200) {
-        final isValid = body?['valid'] == true;
+        final isValid =
+            body?['valid'] == true || body?['status'] == true;
         if (isValid) {
           return const LogoutResult.success();
         }
