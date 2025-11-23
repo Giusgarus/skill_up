@@ -1,4 +1,8 @@
+import json
 import logging
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from statistics import mean
 from fastapi import APIRouter, HTTPException
 import backend.db.database as db
@@ -14,27 +18,34 @@ import utils.data_handler as dh
 
 logger = logging.getLogger(__name__)
 
-MIN_HEAP_K_LEADER = 10
-ALLOWED_DATA_FIELDS: Set[str] = {"score", "name", "surname", "height", "weight", "sex", "profile_pic"} | {f"info{i}" for i in range(20)}
-MIN_LEN_ADF = 1
-MAX_LEN_ADF = 200000
-DIFFICULTY_MAP = {"easy" : 1, "medium" : 3, "hard": 5}
-ALLOWED_DATA_MEDALS: Set[str] = {"B","S","G","None"}
 
-RecordStr = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace = True,
-        min_length = MIN_LEN_ADF,
-        max_length = MAX_LEN_ADF,
-        pattern = r"^[\x20-\x7E]+$",
-    )
-]
+# ==============================
+#         Load Variables
+# ==============================
+env_path = Path(__file__).resolve().parents[2] / "utils" / ".env" # go back 2 levels of directories (to /backend) and then go to /utils/.env
+load_dotenv(env_path)
+
+CHALLENGES_MIN_HEAP_K_LEADER = int(os.getenv("CHALLENGES_MIN_HEAP_K_LEADER", 10))
+CHALLENGES_ALLOWED_DATA_FIELDS: Set[str] = set(os.getenv("CHALLENGES_ALLOWED_DATA_FIELDS", {"score", "name", "surname", "height", "weight", "sex", "profile_pic"}))
+CHALLENGES_MIN_LEN_ADF = int(os.getenv("CHALLENGES_MIN_LEN_ADF", 1))
+CHALLENGES_MAX_LEN_ADF = int(os.getenv("CHALLENGES_MAX_LEN_ADF", 200000))
+CHALLENGES_DIFFICULTY_MAP = json.loads(os.getenv("CHALLENGES_DIFFICULTY_MAP", "{'easy' : 1, 'medium' : 3, 'hard': 5}"))
+
 
 
 # ==============================
 #        Payload Classes
 # ==============================
+RecordStr = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace = True,
+        min_length = CHALLENGES_MIN_LEN_ADF,
+        max_length = CHALLENGES_MAX_LEN_ADF,
+        pattern = r"^[\x20-\x7E]+$",
+    )
+]
+
 class User(BaseModel):
     token: str
 
@@ -64,10 +75,10 @@ router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
 
 
-# ==============================================
-# =================== CODE =====================
-# ==============================================
 
+# ==============================================
+# ================== ROUTES ====================
+# ==============================================
 
 # ==========================
 #            set
@@ -77,19 +88,19 @@ def update_user(payload: UserBody):
     valid_token, user_id = session.verify_session(payload.token)
     if not valid_token:
         raise HTTPException(status_code = 400, detail = "Invalid or missing token")
-    if payload.attribute not in ALLOWED_DATA_FIELDS:
+    if payload.attribute not in CHALLENGES_ALLOWED_DATA_FIELDS:
         raise HTTPException(status_code = 401, detail = "Unsupported attribute")
     try:
         up_status = db.update_one(
             table_name="users",
             keys_dict={"user_id" : user_id},
-            values_dict={"$set": {f"gathered_info.{payload.attribute}": payload.record}}
+            values_dict={"$set": {f"questions_info.{payload.attribute}": payload.record}}
         )
         if up_status.matched_count == 0:
             raise HTTPException(status_code = 402, detail = "User not found")
     except PyMongoError: 
         raise HTTPException(status_code = 403, detail = "Database error")
-    return {"updated": True, "new_record": payload.record}
+    return {"status": True, "new_record": payload.record}
 
 # ==========================
 #         task_done
@@ -174,7 +185,7 @@ def task_done(payload: Task) -> dict:
                 "items": {
                     "$each": [{"username": username, "score": new_score}],
                     "$sort": {"score": -1, "username": 1},
-                    "$slice": MIN_HEAP_K_LEADER
+                    "$slice": CHALLENGES_MIN_HEAP_K_LEADER
                 }
             }
         }
@@ -224,7 +235,7 @@ def get_llm_response(payload: Goal) -> dict:
         "reponses": [],
         "prompts": [],
         "deleted": False,
-        "difficulty": round(mean([DIFFICULTY_MAP.get(task["difficulty"], 1) for _, task in dict(llm_resp["result"]["tasks"]).items()])), # mean of difficulties of all the tasks
+        "difficulty": round(mean([CHALLENGES_DIFFICULTY_MAP.get(task["difficulty"], 1) for _, task in dict(llm_resp["result"]["tasks"]).items()])), # mean of difficulties of all the tasks
         "n_tasks_done": 0,
         "created_at": timing.now_iso(),
         "expected_complete": timing.get_last_date(list(dict(llm_resp["result"]["tasks"]).keys())), # get the higher date in the tasks dict
@@ -242,14 +253,14 @@ def get_llm_response(payload: Goal) -> dict:
             "user_id": user_id,
             "title": task["title"],
             "description": task["description"],
-            "difficulty": DIFFICULTY_MAP.get(task["difficulty"]),
-            "score": DIFFICULTY_MAP.get(task["difficulty"].lower(), "1") * 10,
+            "difficulty": CHALLENGES_DIFFICULTY_MAP.get(task["difficulty"]),
+            "score": CHALLENGES_DIFFICULTY_MAP.get(task["difficulty"].lower(), "1") * 10,
             "deadline_date": date,
             "completed_at": None
         })
     db.insert_many("tasks", tasks)
     
-    return {"ok": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}
+    return {"status": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}
 
 
 # ==========================
@@ -264,7 +275,7 @@ def delete_plan(payload: Plan) -> dict:
     res = db.update_one("plans", keys_dict = {"user_id" : user_id, "plan_id" : plan_id}, values_dict = {"$set" : {"deleted" : True}})
     if res.matched_count == 0:
         raise HTTPException(status_code = 402, detail = "Invalid Plan in Tables")
-    return {"valid" : True}
+    return {"status" : True}
 
 
 # ==========================
@@ -320,8 +331,8 @@ def replan(payload: Replan):
             "user_id": user_id,
             "title": task["title"],
             "description": task["description"],
-            "difficulty": DIFFICULTY_MAP.get(task["difficulty"].lower()),
-            "score": DIFFICULTY_MAP.get(task["difficulty"].lower(), 1) * 10,
+            "difficulty": CHALLENGES_DIFFICULTY_MAP.get(task["difficulty"].lower()),
+            "score": CHALLENGES_DIFFICULTY_MAP.get(task["difficulty"].lower(), 1) * 10,
             "deadline_date": date,
             "completed_at": None,
             "deleted": False
@@ -342,4 +353,4 @@ def replan(payload: Replan):
         }
     )
 
-    return {"ok": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}
+    return {"status": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}

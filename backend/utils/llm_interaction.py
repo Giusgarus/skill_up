@@ -5,10 +5,9 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 from backend.utils import timing
 
-# ---------------------------
-# Client that calls LLM server
-# ---------------------------
-LLM_SERVER_URL = os.getenv("LLM_SERVER_URL", "http://localhost:8001")
+logger = logging.getLogger("llm_interaction")
+
+LLM_SERVER_URL = str(os.getenv("LLM_SERVER_URL", "http://localhost:8001"))
 LLM_SERVICE_TOKEN = os.getenv("LLM_SERVICE_TOKEN", None)
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "10"))  # seconds
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
@@ -36,13 +35,13 @@ def validate_challenges(resp: Dict[str, Any]) -> Tuple[bool, str]:
     - resp (dict): the expected structure is the following (with date string in ISO format, 
     use the backend.utils.timing library to parse/format):
 
-        {\n\t
-            "prompt": str, # the used prompt to get this tasks\n\t
-            "tasks": {\n\t\t
-                "date1":  {"title": str, "description": str, "difficulty": str},\n\t\t
-                "date2":  {"title": str, "description": str, "difficulty": str},\n\t\t
-                ...\n\t
-            }\n
+        {
+            "prompt": str, # the used prompt to get this tasks
+            "tasks": {
+                "date1":  {"title": str, "description": str, "difficulty": str},
+                "date2":  {"title": str, "description": str, "difficulty": str},
+                ...
+            }
         }
 
     Returns
@@ -114,11 +113,6 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     """
     url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
-    
-    # --- DEBUG PRINT START ---
-    #print(f"DEBUG: send_json_to_llm_server received keys: {list(payload.keys())}")
-    #print(f"DEBUG: payload['goal'] raw value: '{payload.get('goal')}'")
-    # --- DEBUG PRINT END ---
 
     # 1. Robust Goal Extraction --> we check if 'goal' exists and is not None/Empty. If it is, we try 'prompt'.
     goal_text = payload.get("goal")
@@ -136,7 +130,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         "history": history_data
     }
     if not body["goal"]:
-        #logger.error(f"Validation Error: Goal came in as '{goal_text}', became '{body['goal']}'")
+        logger.error(f"Validation Error: Goal came in as '{goal_text}', became '{body['goal']}'")
         return {"ok": False, "error": "Empty goal/prompt provided"}
     
     # 4. Prepare Headers --> include also the authentication token if available.
@@ -147,21 +141,21 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     # 5. Send Request
     session = get_session(retries=LLM_MAX_RETRIES)
     try:
-        #logger.info("Calling LLM server %s (goal len=%d)", url, len(body["goal"]))
+        logger.info("Calling LLM server %s (goal len=%d)", url, len(body["goal"]))
         resp = session.post(url, json=body, timeout=LLM_TIMEOUT, headers=headers)
     except requests.RequestException as e:
-        #logger.error("Error contacting LLM server: %s", e, exc_info=True)
+        logger.error("Error contacting LLM server: %s", e, exc_info=True)
         return {"ok": False, "error": f"LLM server unreachable: {str(e)}"}
     
     # 6. Handle response
     if resp.status_code != 200:
         content_snippet = (resp.text[:500] + "...") if resp.text else ""
-        #logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
+        logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
         return {"ok": False, "error": f"LLM server error ({resp.status_code})"}
     try:
         result = resp.json()
     except ValueError:
-        #logger.error("LLM server returned non-json response: %s", resp.text[:500])
+        logger.error("LLM server returned non-json response: %s", resp.text[:500])
         return {"ok": False, "error": "Invalid JSON from LLM server"}
     
     # 7. Check for errors in the result
@@ -170,7 +164,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": f"LLM server: {msg}"}
     is_valid, validation_error = validate_challenges(result)
     if not is_valid:
-        #logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
+        logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
         return {"ok": False, "error": f"Invalid LLM response: {validation_error}"}
     
-    return {"ok": True, "result": result}
+    return {"status": True, "result": result}

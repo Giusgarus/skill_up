@@ -3,7 +3,8 @@ from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
-from backend.db import client, utility
+from backend.db import client
+from backend.utils import utility
 
 def _ensure_index(collection: Collection, keys: list[tuple[str, int]], **kwargs) -> None:
     existing = collection.index_information()

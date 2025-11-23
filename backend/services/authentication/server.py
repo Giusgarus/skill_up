@@ -1,10 +1,8 @@
-import datetime
 import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import timezone as _tz
-
 from pydantic import BaseModel
 from email_validator import EmailNotValidError, validate_email
 import utils.security as security
@@ -13,46 +11,41 @@ import utils.timing as timing
 import db.database as db
 UTC = _tz.utc
 
-class LoginInput(BaseModel):
-    username: str
-    password: str
-
-class LogOut(BaseModel):
-    username: str
-    token: str
-
-class RegisterInput(BaseModel):
-    username: str
-    password: str
-    email: str
-
-class CheckBearer(BaseModel):
-    username: Optional[str] = None
-    token: str
-
-router = APIRouter(prefix="/services/auth", tags=["auth"])
 logger = logging.getLogger("auth_service")
 
 
-def detach_device_tokens(session_token: str) -> None:
-    if not session_token:
-        return
-    try:
-        collection = db.connect_to_db()["device_tokens"]
-    except Exception as exc:
-        logger.warning("Unable to reach device_tokens collection: %s", exc)
-        return
-    try:
-        collection.update_many(
-            {"session_token": session_token},
-            {"$unset": {"user_id": "", "username": "", "session_token": ""}},
-        )
-    except Exception as exc:
-        logger.warning("Failed to detach device tokens for session during logout: %s", exc)
+# ==============================
+#        Payload Classes
+# ==============================
+class User(BaseModel):
+    username: Optional[str] = None
+    token: str
 
+class Login(User):
+    password: str
+
+class Register(Login):
+    email: str
+
+
+# ===============================
+#        Fast API Router
+# ===============================
+router = APIRouter(prefix="/services/auth", tags=["auth"])
+
+
+
+
+# ==============================================
+# ================== ROUTES ====================
+# ==============================================
+
+# ==========================
+#         register
+# ==========================
 @router.post("/register", status_code = 200)
-def register(payload: RegisterInput) -> dict:
-    username = payload.username.strip()
+def register(payload: Register) -> dict:
+    username = str(payload.username).strip()
     password = payload.password
     raw_email = payload.email.strip()
     # Check that all the fileds are in the payload
@@ -72,7 +65,7 @@ def register(payload: RegisterInput) -> dict:
     email_exists = db.find_one(table_name = "users", filters = {"email": email}, projection = {"_id": True})
     if email_exists:
         raise HTTPException(status_code = 404, detail = "Email already in use")
-    record = {
+    user = {
         "username": username,
         "password_hash": security.hash_password(password),
         "user_id": str(uuid.uuid4()),
@@ -83,24 +76,30 @@ def register(payload: RegisterInput) -> dict:
         "creation_time_account": timing.now(),
         "profile_pic": None,
         "streak": 0,
+        "score": 0,
         "name": None,
         "surname": None,
         "height": None,
         "weight": None,
         "sex": None,
-        "gathered_info": [None for _ in range(20)],
+        "selections_info": [],
+        "questions_info": [None for _ in range(10)],
         "medals": {},
     }
     try:
-        db.insert(table_name = "users", record = record)
+        db.insert(table_name = "users", record = user)
     except Exception as e:
         raise HTTPException(status_code = 500, detail = "Database error while creating user")
-    token = session.generate_session(record["user_id"])
-    return {"token": token, "username": username}
+    token = session.generate_session(user["user_id"])
+    return {"status": True, "token": token, "username": username}
+    
 
+# ==========================
+#           login
+# ==========================
 @router.post("/login", status_code = 200)
-def login(payload: LoginInput) -> dict:
-    username = payload.username.strip()
+def login(payload: Login) -> dict:
+    username = str(payload.username).strip()
     password = payload.password
     # Check that all the fileds are in the payload
     if not username or not password:
@@ -113,12 +112,16 @@ def login(payload: LoginInput) -> dict:
     try:
         return {"token": session.generate_session(user["user_id"]), "username": username}
     except:
-        return {"valid" : False}
+        return {"status" : False}
 
+
+# ==========================
+#          logout
+# ==========================
 @router.post("/logout", status_code = 200)
-def logout(payload: LogOut) -> dict:
+def logout(payload: User) -> dict:
     token = payload.token
-    username = payload.username.strip()
+    username = str(payload.username).strip()
     if not token or not username:
         raise HTTPException(status_code = 400, detail = "Token and username required")
     ok, user_id = session.verify_session(token)
@@ -137,15 +140,31 @@ def logout(payload: LogOut) -> dict:
     # Logout
     ack = db.delete("sessions", {"token" : token})
     if ack.acknowledged:
-        detach_device_tokens(token)
-        return {"valid": True}
-    return {"valid": False}
+        if not token:
+            return {"status": True}
+        try:
+            collection = db.connect_to_db()["device_tokens"]
+        except Exception as exc:
+            logger.warning("Unable to reach device_tokens collection: %s", exc)
+            return {"status": True}
+        try:
+            collection.update_many(
+                {"session_token": token},
+                {"$unset": {"user_id": "", "username": "", "session_token": ""}},
+            )
+        except Exception as exc:
+            logger.warning("Failed to detach device tokens for session during logout: %s", exc)
+        return {"status": True}
+    return {"status": False}
 
 
+# ==========================
+#       check_bearer
+# ==========================
 @router.post("/check_bearer", status_code = 200)
-def validate_bearer(payload: CheckBearer) -> dict:
+def validate_bearer(payload: User) -> dict:
     token = payload.token
-    username = payload.username
+    username = str(payload.username).strip()
     # Check if the token is present
     if not token:
         raise HTTPException(status_code = 400, detail = "Token required")
@@ -160,4 +179,4 @@ def validate_bearer(payload: CheckBearer) -> dict:
     # Check if the username is equal to the one associated with the token
     if username != username_proj:
         raise HTTPException(status_code = 403, detail = "Mismatch user id, username")
-    return {"valid": True, "username": username_proj}
+    return {"status": True, "username": username_proj}

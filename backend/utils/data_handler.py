@@ -1,5 +1,10 @@
+import os
 import backend.db.database as db
 from fastapi import HTTPException
+
+
+REGISTER_QUESTIONS: list = [s.replace("\"","") for s in str(os.getenv("REGISTER_QUESTIONS", None)).split(",")]
+REGISTER_INTERESTS_LABELS: list = list(os.getenv("REGISTER_INTERESTS_LABELS", []))
 
 
 def get_user_info(user_id: str) -> dict:
@@ -18,7 +23,8 @@ def get_user_info(user_id: str) -> dict:
             "height": float,
             "weight": float,
             "sex": str,
-            "gathered_info": [
+            "interests_info": list[str], # list of words describing the interests
+            "questions_info": [
                 {
                     "question": str,
                     "answer": str
@@ -27,31 +33,24 @@ def get_user_info(user_id: str) -> dict:
             ]
         }
     '''
-    questions_dict: dict = {
-        0: "I tend to be hard on myself when I don't meet my own high expectations",
-        1: "I prefer a predictable, steady routine over spontaneity and variety.",
-        2: "I need to understand the logical reason behind a rule before I will follow it.",
-        3: "I am more likely to finish a task if I know someone else is watching or counting on me.",
-        4: "I often feel overwhelmed when I have too many choices to make.",
-        5: "I find it difficult to stick with a task if I don't see immediate results.",
-        6: "When I get stressed or busy, my personal habits are the first thing I drop.",
-        7: "I am motivated by competition and proving I am better than others.",
-        8: "I often make plans but struggle to actually start them.",
-        9: "I believe that if I work hard enough, I can change almost anything about myself."
-    }
-    results = db.find_one(
+    user = db.find_one(
         table_name="users", 
         filters={"user_id": user_id}, 
-        projection={"_id": False, "height": True, "weight" : True, "sex" : True, "gathered_info" : True}
+        projection={"_id": False, "height": True, "weight" : True, "sex" : True, "selections_info": True, "questions_info" : True}
     )
-    if results is None:
+    if user is None:
         raise HTTPException(status_code = 402, detail = "Invalid user projection")
     user_info = {
-        "height": results["height"], 
-        "weight": results["weight"], 
-        "sex": results["sex"],
-        "gathered_info": []
+        "height": user["height"], 
+        "weight": user["weight"], 
+        "sex": user["sex"],
+        "interests_info": [
+            REGISTER_INTERESTS_LABELS[idx]
+            for idx in user["interests_info"]
+        ],
+        "questions_info": [
+            {"question": REGISTER_QUESTIONS[i], "answer": value}
+            for i, value in enumerate(list(user["questions_info"]))
+        ]
     }
-    for i, value in enumerate(list(results["gathered_info"])):
-        user_info["gatered_info"].append({"question": questions_dict[i], "answer": value})
     return user_info
