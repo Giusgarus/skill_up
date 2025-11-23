@@ -206,7 +206,7 @@ def get_llm_response(payload: Goal) -> dict:
     llm_resp = llm.get_llm_response(llm_payload)
     if not llm_resp.get("ok"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
-        logger.error("LLM service error for user %s: %s", user_id, err_msg)
+        logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
 
     # 3. Update Database --> we store the whole structure now
@@ -232,11 +232,11 @@ def get_llm_response(payload: Goal) -> dict:
         "tasks": [{date: [task] for date, task in dict(llm_resp["result"]["tasks"]).items()}] # each obj --> {"date1": [task], "date2": [task], ...}
     }
     db.insert("plans", plan)
-    records = []
+    tasks = []
     for i, date_task in enumerate(dict(llm_resp["result"]["tasks"]).items()):
         date, task = date_task
         timing.from_iso_to_datetime(date)
-        records.append({
+        tasks.append({
             "task_id": i,
             "plan_id": plan_id,
             "user_id": user_id,
@@ -247,7 +247,7 @@ def get_llm_response(payload: Goal) -> dict:
             "deadline_date": date,
             "completed_at": None
         })
-    db.insert_many("tasks", records)
+    db.insert_many("tasks", tasks)
     
     return {"ok": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}
 
@@ -275,15 +275,18 @@ def replan(payload: Replan):
     plan_id = payload.plan_id
     new_goal = payload.new_goal
     ok, user_id = session.verify_session(payload.token)
-
-    # 1. Cases of error (session and plan_id)
     if not ok or not user_id:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    plan = db.find_one("plans", filters={"user_id": user_id, "plan_id": plan_id})
+
+    # 1. Retrieve the plan from the DB
+    plan = db.find_one(
+        table_name="plans",
+        filters={"user_id": user_id, "plan_id": plan_id}
+    )
     if not plan_id or plan is None:
         raise HTTPException(status_code = 402, detail = "Invalid Plan ID")
     
-    # 2. Communication with the LLM server to replan
+    # 2. Communication with the LLM server
     llm_payload = {
         "goal": new_goal,
         "level": "0", # Default to beginner (0=beginner, 1=intermediate, 2=advanced)
@@ -293,19 +296,37 @@ def replan(payload: Replan):
     llm_resp = llm.get_llm_response(llm_payload)
     if not llm_resp.get("ok"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
-        logger.error("LLM service error for user %s: %s", user_id, err_msg)
+        logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
     
-    # 3. Update the tasks --> set every task as "deleted" (because the active ones are the new ones)
-    db.update_one(
+    # 3. Update the tasks
+    n_tasks = plan["n_tasks"]
+    plan = db.find_one_and_update( # set previous tasks as deleted
         table_name = "tasks",
         keys_dict = {"plan_id": plan_id, "user_id": user_id},
-        values_dict = {"$set": {"deleted": True}}
+        values_dict = {
+            "$set": {"deleted": True},
+            "$inc": {"n_tasks": n_tasks + len(llm_resp["result"]["tasks"])}
+        },
+        return_policy=ReturnDocument.AFTER
     )
-    db.insert_many(
-        table_name="tasks",
-        records=llm_resp["result"]["tasks"]
-    )
+    tasks = []
+    for i, date_task in enumerate(dict(llm_resp["result"]["tasks"]).items()):
+        date, task = date_task
+        timing.from_iso_to_datetime(date)
+        tasks.append({
+            "task_id": n_tasks + i, # new task_id continues from the previous plan tasks
+            "plan_id": plan_id,
+            "user_id": user_id,
+            "title": task["title"],
+            "description": task["description"],
+            "difficulty": DIFFICULTY_MAP.get(task["difficulty"].lower()),
+            "score": DIFFICULTY_MAP.get(task["difficulty"].lower(), 1) * 10,
+            "deadline_date": date,
+            "completed_at": None,
+            "deleted": False
+        })
+    db.insert_many("tasks", tasks)
 
     # 4. Update the plan
     db.find_one_and_update(

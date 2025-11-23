@@ -20,9 +20,10 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
     "n_plans": "<int>",
     // Qui facciamo così, se il timestamp giorno esiste, sappiamo che quel giorno l'utente ha preso una medaglia. In caso esista, il task che ha fatto prendere la medaglia x è task_id.
     // Se vogliamo capire la streak, possiamo pre-creare i timestamp giorno delle medals, tanto è il piano della LLM quando fare i task o no, se il timestampp giorno esiste vuol dure che potevamo avere medaglie, quindi c'erano tasks, lo precreiamo, ma la list corrispondete non ha niente dentro, a questo punto si potevano guadagnare medaglie ma l'utente non l'ha presa. Ti torna ? Se non c'è il timestamp giorno vuol dire che non c'erano task il giorno x. A questo punto basta cercare se la caridnalità della lista tra l'ultimo timestamp e l'ultimo è almeno 1, quindi c'è almeno una medaglia. (con orologio ogni 24 ore) 
-    "medals":
-      {
-        "timestamp_giorno": [{"task_id": "<string>", "medal": "B"|"S"|"G"|}]
+    "medals": {
+        "timestamp_giorno": [{"task_id": "<string>", "medal": "B"|"S"|"G"|}],
+        "timestamp_giorno": [{"task_id": "<string>", "medal": "B"|"S"|"G"|}],
+        ...
       },
       ...
     ],
@@ -72,10 +73,10 @@ tasks_collection.create_index(["task_id"], unique=True)
     "plan_id": "<string>",
     "user_id": "<string>",
     "n_tasks": "<int>",
+    "n_tasks_done": "<int>",
     "repsonses": ["json_i"],
     "prompts": ["<string>"],
     "deleted": "<bool>",
-    "n_tasks_done": "<int>",
     "created_at": "<ISO datetime UTC>",
     "expected_complete": "<ISO datetime UTC>", // Scadenza data dall'utente
     // Ci serve un task di un giorno X ? user_id -> prendo tutti i plan_id tale per cui tempo attuale compreso tra [created_at, expected_complete] dei plan che escono, da li prendo la lista tasks indicizzato dal dizionario per giorno. Possiamo anche mettere un campo finished plan true false e fare un filter volendo filtrare senza le date, non so quanto convenga.
