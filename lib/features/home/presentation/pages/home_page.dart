@@ -1877,17 +1877,17 @@ class _SuggestionChip extends StatelessWidget {
               ],
             ),
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown, // ✅ rimpicciolisce il testo se non entra
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black.withValues(alpha: 0.85),
-                    height: 1.2,
-                  ),
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.visible,
+                softWrap: true,
+                textAlign: TextAlign.center,
+                style: textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black.withValues(alpha: 0.85),
+                  height: 1.2,
+                  fontSize: 16, // ⭐ consigliato per avere uniformità
                 ),
               ),
             ),
