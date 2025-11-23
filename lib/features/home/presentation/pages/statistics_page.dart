@@ -55,6 +55,42 @@ class _StatisticsPageState extends State<StatisticsPage> {
     });
   }
 
+  int _computeCurrentStreak() {
+    final repo = MedalHistoryRepository.instance;
+    DateTime today = dateOnly(DateTime.now());
+
+    MedalType _medalForDay(DateTime day) {
+      final base = DateTime(day.year, day.month);
+      final medals = repo.medalsForMonth(base);
+      return medals[day] ?? MedalType.none;
+    }
+
+    // 1) Controllo se oggi ha una medaglia
+    final hasMedalToday = _medalForDay(today) != MedalType.none;
+
+    // 2) Se oggi NON ha medaglia, partiamo da ieri
+    DateTime day = hasMedalToday
+        ? today
+        : today.subtract(const Duration(days: 1));
+
+    int streak = 0;
+
+    // 3) Camminiamo all’indietro finché troviamo giorni con medaglia
+    while (true) {
+      final medal = _medalForDay(day);
+      if (medal == MedalType.none) {
+        break;
+      }
+      streak++;
+      day = day.subtract(const Duration(days: 1));
+
+      // piccola safety per non ciclare all’infinito
+      if (streak > 3650) break; // ~10 anni
+    }
+
+    return streak;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
@@ -85,7 +121,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
     final totals = _statsRepository.medalTotals();
     final yearMedals = _statsRepository.yearTrend(_selectedYear);
     final monthTrend =
-        _statsRepository.monthTrend(_selectedYear, _selectedMonth);
+    _statsRepository.monthTrend(_selectedYear, _selectedMonth);
+    final streak = _computeCurrentStreak();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -106,7 +143,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   _StatsCard(
                     levelInfo: levelInfo,
                     totals: totals,
-                    cardTextStyle: cardTextStyle, streak: 0,
+                    streak: streak,
+                    cardTextStyle: cardTextStyle,
                   ),
                   const SizedBox(height: 32),
                   Text('Year', style: sectionTitle),
@@ -164,44 +202,55 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-          letterSpacing: 1.1,
-        );
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        InkWell(
-          onTap: onBackTap,
-          customBorder: const CircleBorder(),
-          child: Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.2),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.7),
-                width: 2,
+        // freccia attaccata al bordo sinistro, come in Settings
+        Transform.translate(
+          offset: const Offset(-24, 0), // padding orizzontale esterno = 24
+          child: GestureDetector(
+            onTap: onBackTap,
+            child: Container(
+              width: 72,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0xFFB3B3B3),
+                borderRadius: BorderRadius.horizontal(
+                  right: Radius.circular(28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ],
               ),
-            ),
-            padding: const EdgeInsets.all(10),
-            child: Image.asset(
-              'assets/icons/back.png',
-              fit: BoxFit.contain,
+              padding: const EdgeInsets.only(left: 14),
+              alignment: Alignment.centerLeft,
+              child: Image.asset(
+                'assets/icons/back.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.contain,
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 18),
         Expanded(
-          child: Text(
-            title,
-            style: titleStyle ??
-                const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'FredokaOne',
+                fontSize: 44,
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
+                color: Colors.white,
+              ),
+            ),
           ),
         ),
       ],

@@ -152,9 +152,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                   'SETTINGS',
                                   style: const TextStyle(
                                     fontFamily: 'FredokaOne',
-                                    fontSize: 40,
+                                    fontSize: 44,
                                     fontWeight: FontWeight.w900,
-                                    fontStyle: FontStyle.italic,
+                                    fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
                                     color: Colors.white,
                                   ),
                                 ),
