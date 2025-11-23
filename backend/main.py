@@ -14,6 +14,7 @@ from backend.services.authentication.server import router as authentication_rout
 from backend.services.challenges.server import router as challenges_router
 from backend.services.gamification.server import router as gamification_router
 from backend.services.notifications.server import router as notifications_router
+from backend.services.gathering.server import router as gathering_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -34,6 +35,7 @@ app.include_router(authentication_router)
 app.include_router(challenges_router)
 app.include_router(gamification_router)
 app.include_router(notifications_router)
+app.include_router(gathering_router)
 
 if __name__ == "__main__":
     import uvicorn
