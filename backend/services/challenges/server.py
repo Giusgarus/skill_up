@@ -320,4 +320,5 @@ def replan(payload: Replan):
             }
         }
     )
-    
+
+    return {"ok": True, "data": llm_resp["result"], "prompt": llm_resp["prompt"]}
