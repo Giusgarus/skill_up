@@ -104,6 +104,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         {\n\t
             "prompt": str, # the used prompt to get this tasks\n\t
+            "response": str,\n\t
             "tasks": {\n\t\t
                 "date1":  {"title": str, "description": str, "difficulty": str},\n\t\t
                 "date2":  {"title": str, "description": str, "difficulty": str},\n\t\t

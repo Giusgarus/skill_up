@@ -53,6 +53,7 @@ user_collection.create_index("user_id", unique=True)
     "score": "<int>",
     "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
+    "deleted": "<bool>"
   },
   .
   .
@@ -81,7 +82,20 @@ tasks_collection.create_index(["task_id"], unique=True)
     "expected_complete": "<ISO datetime UTC>", // Scadenza data dall'utente
     // Ci serve un task di un giorno X ? user_id -> prendo tutti i plan_id tale per cui tempo attuale compreso tra [created_at, expected_complete] dei plan che escono, da li prendo la lista tasks indicizzato dal dizionario per giorno. Possiamo anche mettere un campo finished plan true false e fare un filter volendo filtrare senza le date, non so quanto convenga.
     // Lista di task indicizzata per giorno iso, nella lista ogni task è un semplicemente il suo ID, tanto tutte le informazioni si trovano dentro la collezione tasks
-    "tasks": {"<ISO datetime UTC>" : ["lista di task"]}
+    "n_replans": "<int>", // index of the current active plan (e.g. with 2 replans we have 3 objects in list and the one in position 2 is the active one)
+    "tasks": [
+        { // 1 object for each replan (position 0 the first plan generated)
+          "<ISO datetime UTC>" : ["lista di task"],
+          "<ISO datetime UTC>" : ["lista di task"],
+          ...
+        },
+        {
+          "<ISO datetime UTC>" : ["lista di task"],
+          "<ISO datetime UTC>" : ["lista di task"],
+          ...
+        },
+        ...
+      }
   },
   .
   .
