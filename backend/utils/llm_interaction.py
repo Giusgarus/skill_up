@@ -102,14 +102,14 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     the 'result' field is the following (with date string in ISO format, use the backend.utils.timing 
     library to parse/format):
 
-        {\n\t
-            "prompt": str, # the used prompt to get this tasks\n\t
-            "response": str,\n\t
-            "tasks": {\n\t\t
-                "date1":  {"title": str, "description": str, "difficulty": str},\n\t\t
-                "date2":  {"title": str, "description": str, "difficulty": str},\n\t\t
-                ...\n\t
-            }\n
+        {
+            "prompt": str, # the used prompt to get this tasks
+            "response": str, # the response got from the LLM
+            "tasks": {
+                "date1":  {"title": str, "description": str, "difficulty": str},
+                "date2":  {"title": str, "description": str, "difficulty": str},
+                ...
+            }
         }
 
     """
