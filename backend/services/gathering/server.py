@@ -1,6 +1,6 @@
 from typing import Optional
 from pathlib import Path
-from dotenv import load_dotenv
+import json
 import os
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
@@ -11,10 +11,11 @@ from backend.db import database as db
 # ==============================
 #         Load Variables
 # ==============================
-env_path = Path(__file__).resolve().parents[2] / "utils" / ".env" # go back 2 levels of directories (to /backend) and then go to /utils/.env
-load_dotenv(env_path)
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
+    _cfg = json.load(f)
 
-REGISTER_INTERESTS_LABELS: list = list(os.getenv("REGISTER_INTERESTS_LABELS", []))
+REGISTER_INTERESTS_LABELS: list = _cfg.get("REGISTER_INTERESTS_LABELS", [])
 
 
 # ==============================
@@ -55,14 +56,17 @@ def set_interests(payload: Interests):
     # 1. Check session and insterests validity
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    if not interests or not all(interest in REGISTER_INTERESTS_LABELS for interest in interests):
+    label_index = {label.lower(): idx for idx, label in enumerate(REGISTER_INTERESTS_LABELS)}
+    try:
+        interests_idx = [label_index[i.lower()] for i in interests]
+    except Exception:
         raise HTTPException(status_code = 400, detail = f"Invalid interests format, check allowed interests labels: {REGISTER_INTERESTS_LABELS}")
     
     # 2. Update the user
     result = db.update_one(
         table_name="users",
         keys_dict={"user_id": user_id},
-        values_dict={"$set": {"interests_info": interests}}
+        values_dict={"$set": {"interests_info": interests_idx}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code = 402, detail = "User not found")

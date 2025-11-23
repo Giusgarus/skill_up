@@ -5,6 +5,8 @@ from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from backend.db import client
 from backend.utils import utility
+from typing import Union, Mapping, Sequence, Any
+from pymongo.errors import PyMongoError
 
 def _ensure_index(collection: Collection, keys: list[tuple[str, int]], **kwargs) -> None:
     existing = collection.index_information()
@@ -35,32 +37,53 @@ def insert_many(table_name: str, records: list[dict]) -> list[dict]:
         results.append(result)
     return results
 
-def update_one(table_name: str, keys_dict: dict, values_dict: dict, upsert = False) -> dict:
+def update_one(
+    table_name: str,
+    keys_dict: Mapping[str, Any],
+    values_dict: Union[Mapping[str, Any], Sequence[Mapping[str, Any]]],
+    upsert: bool = False,
+):
     db = connect_to_db()
     if not utility.check_primary_keys(table_name, keys_dict):
-        raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the record field")
+        raise RuntimeError(
+            f"The primary keys {utility.table_primary_keys_dict[table_name]} "
+            f"of '{table_name}' are required in the record field"
+        )
     try:
-        return db[table_name].update_one(keys_dict, values_dict, upsert = upsert)
+        return db[table_name].update_one(keys_dict, values_dict, upsert=upsert)
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def update_many(table_name: str, records: list[dict]) -> list[dict]:
+def update_many(table_name: str, records: list[dict]):
     results = []
-    # Check of presence of the keys for each record
     keys_dict = {}
     for i, record in enumerate(records):
         keys_dict[i] = {}
         for key in utility.table_primary_keys_dict[table_name]:
             if key not in record.keys():
-                raise RuntimeError(f"The primary keys {utility.table_primary_keys_dict[table_name]} of '{table_name}' are required in the records field")
+                raise RuntimeError(
+                    f"The primary keys {utility.table_primary_keys_dict[table_name]} "
+                    f"of '{table_name}' are required in the records field"
+                )
             keys_dict[i][key] = record[key]
             del record[key]
-    # Update of each record
     for i, record in enumerate(records):
         result = update_one(table_name, keys_dict[i], record)
         results.append(result)
     return results
 
+def update_many_filtered(
+    table_name: str,
+    filter: Mapping[str, Any],
+    update: Union[Mapping[str, Any], Sequence[Mapping[str, Any]]],
+    upsert: bool = False,
+):
+    db = connect_to_db()
+    try:
+        return db[table_name].update_many(filter, update, upsert=upsert)
+    except PyMongoError as e:
+        raise RuntimeError(e)
+    
 def delete(table_name: str, filter: dict = {}):
     db = connect_to_db()
     try:
@@ -87,13 +110,26 @@ def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> l
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_one_and_update(table_name: str, keys_dict: dict, values_dict: dict, projection: dict = None, return_policy = ReturnDocument.BEFORE) -> list:
+
+def find_one_and_update(
+    table_name: str,
+    keys_dict: Mapping[str, Any],
+    values_dict: Union[Mapping[str, Any], Sequence[Mapping[str, Any]]],
+    projection: Mapping[str, Any] | None = None,
+    return_policy: ReturnDocument = ReturnDocument.BEFORE,
+):
     db = connect_to_db()
     try:
-        proj = db[table_name].find_one_and_update(filter = keys_dict, update = values_dict, projection = projection, return_document = return_policy)
+        proj = db[table_name].find_one_and_update(
+            filter=keys_dict,
+            update=values_dict,
+            projection=projection,
+            return_document = return_policy,
+        )
         return proj
     except PyMongoError as e:
         raise RuntimeError(e)
+
 
 def create_indexes(db: Optional[Database]) -> None:
     if db is None:

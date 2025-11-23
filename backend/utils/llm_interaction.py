@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import Tuple, Dict, Any
+from datetime import timedelta
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from backend.utils import timing
@@ -9,7 +10,7 @@ logger = logging.getLogger("llm_interaction")
 
 LLM_SERVER_URL = str(os.getenv("LLM_SERVER_URL", "http://localhost:8001"))
 LLM_SERVICE_TOKEN = os.getenv("LLM_SERVICE_TOKEN", None)
-LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "10"))  # seconds
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))  # seconds
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 
@@ -115,22 +116,23 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
 
     # 1. Robust Goal Extraction --> we check if 'goal' exists and is not None/Empty. If it is, we try 'prompt'.
-    goal_text = payload.get("goal")
-    if not goal_text: 
-        goal_text = payload.get("prompt")
+    goal_text = payload.get("goal") or payload.get("prompt")
+    goal = str(goal_text).strip() if goal_text else ""
 
-    # 2. History Extraction
+    # 2. History Extraction -> the LLM service expects a list, so coerce/ignore invalid shapes.
     history_data = payload.get("history")
+    history_list: list = []
+    if isinstance(history_data, list):
+        history_list = history_data
 
     # 3. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
-        "goal": str(goal_text).strip() if goal_text else "",
-        "level": payload.get("level", "Beginner"),
-        "user_info" : payload["user_info"],
-        "history": history_data
+        "goal": goal,
+        "level": str(payload.get("level", "beginner")).lower(),
+        "history": history_list,
     }
     if not body["goal"]:
-        logger.error(f"Validation Error: Goal came in as '{goal_text}', became '{body['goal']}'")
+        logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal_text)
         return {"ok": False, "error": "Empty goal/prompt provided"}
     
     # 4. Prepare Headers --> include also the authentication token if available.
@@ -162,9 +164,34 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(result, dict) and ("error" in result or "detail" in result):
         msg = result.get("error") or result.get("detail") or "LLM server reported an error"
         return {"ok": False, "error": f"LLM server: {msg}"}
+
+    # 8. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
+    if isinstance(result, dict) and "challenges_list" in result:
+        challenges = result.get("challenges_list") or []
+        tasks: dict[str, dict[str, Any]] = {}
+        today = timing.now().date()
+        for idx, ch in enumerate(challenges):
+            date_str = (today + timedelta(days=idx)).isoformat()
+            title = ch.get("challenge_title") or f"Challenge {idx+1}"
+            desc = ch.get("challenge_description") or ""
+            diff = str(ch.get("difficulty") or "easy")
+            tasks[date_str] = {
+                "title": title,
+                "description": desc,
+                "difficulty": diff,
+            }
+        converted = {
+            "prompt": body["goal"],
+            "response": result,
+            "tasks": tasks,
+            "n_tasks": len(tasks),
+        }
+        return {"ok": True, "status": True, "result": converted}
+
+    # 9. Legacy validation path
     is_valid, validation_error = validate_challenges(result)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
         return {"ok": False, "error": f"Invalid LLM response: {validation_error}"}
     
-    return {"status": True, "result": result}
+    return {"ok": True, "status": True, "result": result}

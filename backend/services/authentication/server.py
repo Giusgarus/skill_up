@@ -5,10 +5,10 @@ import uuid
 from datetime import timezone as _tz
 from pydantic import BaseModel
 from email_validator import EmailNotValidError, validate_email
-import utils.security as security
-import utils.session as session
-import utils.timing as timing
-import db.database as db
+import backend.utils.security as security
+import backend.utils.session as session
+import backend.utils.timing as timing
+import backend.db.database as db
 UTC = _tz.utc
 
 logger = logging.getLogger("auth_service")
@@ -19,9 +19,10 @@ logger = logging.getLogger("auth_service")
 # ==============================
 class User(BaseModel):
     username: Optional[str] = None
-    token: str
+    token: Optional[str] = None
 
-class Login(User):
+class Login(BaseModel):
+    username: str
     password: str
 
 class Register(Login):
@@ -43,7 +44,7 @@ router = APIRouter(prefix="/services/auth", tags=["auth"])
 # ==========================
 #         register
 # ==========================
-@router.post("/register", status_code = 200)
+@router.post("/register", status_code=200)
 def register(payload: Register) -> dict:
     username = str(payload.username).strip()
     password = payload.password
@@ -82,8 +83,15 @@ def register(payload: Register) -> dict:
         "height": None,
         "weight": None,
         "sex": None,
+        "interests_info": [],
         "selections_info": [],
         "questions_info": [None for _ in range(10)],
+        "about": None,
+        "day_routine": None,
+        "organized": None,
+        "focus": None,
+        "age": None,
+        "onboarding_answers": None,
         "medals": {},
     }
     try:
@@ -97,56 +105,55 @@ def register(payload: Register) -> dict:
 # ==========================
 #           login
 # ==========================
-@router.post("/login", status_code = 200)
+@router.post("/login", status_code=200)
 def login(payload: Login) -> dict:
     username = str(payload.username).strip()
     password = payload.password
     # Check that all the fileds are in the payload
     if not username or not password:
-        raise HTTPException(status_code = 400, detail = "Username and password are required")
+        raise HTTPException(status_code=400, detail="Username and password are required")
     # Login
-    user = db.find_one(table_name = "users", filters = {"username": username}, projection = {"_id" : False, "password_hash" : True, "user_id" : True})
+    user = db.find_one(table_name="users", filters={"username": username}, projection={"_id": False, "password_hash": True, "user_id": True})
     # Check if username and password are equals
     if user is None or not security.verify_password(user["password_hash"], password):
-        raise HTTPException(status_code = 401, detail = "Invalid username or password")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
     try:
-        return {"token": session.generate_session(user["user_id"]), "username": username}
+        return {"status": True, "token": session.generate_session(user["user_id"]), "username": username}
     except:
-        return {"status" : False}
+        return {"status": False}
 
 
 # ==========================
 #          logout
 # ==========================
-@router.post("/logout", status_code = 200)
+@router.post("/logout", status_code=200)
 def logout(payload: User) -> dict:
     token = payload.token
-    username = str(payload.username).strip()
-    if not token or not username:
-        raise HTTPException(status_code = 400, detail = "Token and username required")
+    username = str(payload.username).strip() if payload.username else None
+    if not token:
+        raise HTTPException(status_code=400, detail="Token required")
     ok, user_id = session.verify_session(token)
     if not ok or not user_id:
-        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    user = db.find_one(
-        table_name = "users",
-        filters = {"user_id": user_id},
-        projection = {"_id": False, "username": True}
-    )
-    username_in_db = user["username"] if user else None
-    if username_in_db is None:
-        raise HTTPException(status_code = 402, detail = "User not found")
-    if username_in_db != username:
-        raise HTTPException(status_code = 403, detail = "Username does not match token owner")
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    if username:
+        user = db.find_one(
+            table_name="users",
+            filters={"user_id": user_id},
+            projection={"_id": False, "username": True}
+        )
+        username_in_db = user["username"] if user else None
+        if username_in_db is None:
+            raise HTTPException(status_code=402, detail="User not found")
+        if username_in_db != username:
+            raise HTTPException(status_code=403, detail="Username does not match token owner")
     # Logout
-    ack = db.delete("sessions", {"token" : token})
+    ack = db.delete("sessions", {"token": token})
     if ack.acknowledged:
-        if not token:
-            return {"status": True}
         try:
             collection = db.connect_to_db()["device_tokens"]
         except Exception as exc:
             logger.warning("Unable to reach device_tokens collection: %s", exc)
-            return {"status": True}
+            return {"valid": True, "status": True}
         try:
             collection.update_many(
                 {"session_token": token},
@@ -154,29 +161,29 @@ def logout(payload: User) -> dict:
             )
         except Exception as exc:
             logger.warning("Failed to detach device tokens for session during logout: %s", exc)
-        return {"status": True}
-    return {"status": False}
+        return {"valid": True, "status": True}
+    return {"valid": False, "status": False}
 
 
 # ==========================
 #       check_bearer
 # ==========================
-@router.post("/check_bearer", status_code = 200)
+@router.post("/check_bearer", status_code=200)
 def validate_bearer(payload: User) -> dict:
     token = payload.token
-    username = str(payload.username).strip()
+    username = str(payload.username).strip() if payload.username else None
     # Check if the token is present
     if not token:
-        raise HTTPException(status_code = 400, detail = "Token required")
+        raise HTTPException(status_code=400, detail="Token required")
     ok, user_id = session.verify_session(token)
     if not ok or not user_id:
-        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
     # Check if the user exists
-    proj_user_username = db.find_one(table_name = "users", filters = {"user_id": user_id}, projection = {"_id": False, "username": True})
+    proj_user_username = db.find_one(table_name="users", filters={"user_id": user_id}, projection={"_id": False, "username": True})
     username_proj = proj_user_username["username"] if proj_user_username else None
     if username_proj is None:
-        raise HTTPException(status_code = 402, detail = "User not found")
-    # Check if the username is equal to the one associated with the token
-    if username != username_proj:
-        raise HTTPException(status_code = 403, detail = "Mismatch user id, username")
-    return {"status": True, "username": username_proj}
+        raise HTTPException(status_code=402, detail="User not found")
+    # Check if the username is equal to the one associated with the token if provided
+    if username and username != username_proj:
+        raise HTTPException(status_code=403, detail="Mismatch user id, username")
+    return {"valid": True, "username": username_proj, "status": True}

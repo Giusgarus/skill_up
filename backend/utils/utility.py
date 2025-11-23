@@ -1,12 +1,11 @@
-import 
-
-
 table_primary_keys_dict = {
     # These are Lists of Strings
     "users": ["user_id", "username", "email"], 
     
     # This is a List containing one Tuple
-    "tasks": [("task_id", "user_id")], 
+    "tasks": [("task_id", "user_id", "plan_id")], 
+    "plans": [("plan_id", "user_id")],
+    "medals": [("user_id", "timestamp")],
     
     # These are Lists of Strings (parentheses do nothing here)
     "sessions": ["token"],
