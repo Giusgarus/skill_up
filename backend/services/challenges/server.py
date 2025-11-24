@@ -368,10 +368,7 @@ def get_active_plan(payload: User) -> dict:
         # update plans
         all_plans.append(plan)
 
-    return {
-        "status": True,
-        "plans": all_plans
-    }
+    return {"status": True, "plans": all_plans}
 
 
 # ==========================

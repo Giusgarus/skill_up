@@ -47,6 +47,7 @@ def get_leaderboard(payload: User) -> dict:
     items = (leaderboard_doc or {}).get("items", [])
     return {"status": True, "leaderboard": items}
 
+
 '''
 # per giorni senza task: non inserire nulla
 # per giorni con task (non fatti): tutto None

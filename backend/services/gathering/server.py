@@ -67,6 +67,24 @@ router = APIRouter(prefix="/services/gathering", tags=["gathering"])
 # ==============================================
 
 # ==========================
+#            get
+# ==========================
+@router.post("/get", status_code = 200)
+def get_user(payload: UserBody) -> dict:
+    ok, user_id = session.verify_session(payload.token)
+    attribute = payload.attribute
+    if not ok:
+        raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+    user = db.find_one(
+        table_name="users",
+        filters = {"user_id": user_id},
+        projection = {"_id": False, attribute: True}
+    )
+    if not user:
+        raise HTTPException(status_code = 402, detail = "User not found")
+    return {"status": True, attribute: user.get(attribute, None)}
+
+# ==========================
 #            set
 # ==========================
 @router.post("/set", status_code = 200)
