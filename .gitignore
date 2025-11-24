@@ -46,3 +46,4 @@ app.*.map.json
 /android/app/release
 
 /backend/llm/.env
+backend/services/notifications/skillup-da594-firebase-adminsdk-fbsvc-2bf44a705b.json
