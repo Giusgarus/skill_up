@@ -14,7 +14,7 @@ import backend.db.database as db
 
 SERVICE_ACCOUNT_PATH = os.getenv(
     "FIREBASE_SERVICE_ACCOUNT",
-    str(Path(__file__).with_name("skillup-da594-firebase-adminsdk-fbsvc-ee68e7845d.json")),
+    str(Path(__file__).with_name("skillup-da594-firebase-adminsdk-fbsvc-2bf44a705b.json")),
 )
 DEFAULT_TITLE = os.getenv("NOTIFICATION_TITLE", "SkillUp")
 DEFAULT_BODY_TEMPLATE = os.getenv(
