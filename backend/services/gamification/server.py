@@ -17,15 +17,29 @@ load_dotenv(env_path)
 ALLOWED_DATA_MEDALS: Set[str] = set(os.getenv("CHALLENGES_ALLOWED_DATA_FIELDS", {"B","S","G","None"}))
 
 
-class GetLeaderboard(BaseModel):
+# ==============================
+#        Payload Classes
+# =================s=============
+class User(BaseModel):
     token: str
 
 
+# ===============================
+#        Fast API Router
+# ===============================
 router = APIRouter(prefix="/services/gamification", tags=["gamification"])
 
 
+
+# ==============================================
+# ================== ROUTES ====================
+# ==============================================
+
+# ==========================
+#        leaderboard
+# ==========================
 @router.post("/leaderboard", status_code = 200)
-def get_leaderboard(payload: GetLeaderboard) -> dict:
+def get_leaderboard(payload: User) -> dict:
     ok, _ = session.verify_session(payload.token)
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")

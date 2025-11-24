@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import Annotated, Optional, Set
 from pathlib import Path
 import json
 import os
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 from fastapi import APIRouter, HTTPException
+from pymongo.errors import PyMongoError
 from backend.utils import session
 from backend.db import database as db
 
@@ -15,15 +16,36 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
 with CONFIG_PATH.open("r", encoding="utf-8") as f:
     _cfg = json.load(f)
 
-REGISTER_INTERESTS_LABELS: list = _cfg.get("REGISTER_INTERESTS_LABELS", [])
+GATHERING_MIN_LEN_ADF = int(_cfg.get("GATHERING_MIN_LEN_ADF", 1))
+GATHERING_MAX_LEN_ADF = int(_cfg.get("GATHERING_MAX_LEN_ADF", 200000))
+GATHERING_INTERESTS_LABELS: list = _cfg.get("GATHERING_INTERESTS_LABELS", [])
+GATHERING_ALLOWED_DATA_FIELDS: Set[str] = set(
+    _cfg.get(
+        "GATHERING_ALLOWED_DATA_FIELDS",
+        ["score", "name", "surname", "height", "weight", "sex", "profile_pic"],
+    )
+)
 
 
 # ==============================
 #        Payload Classes
 # ==============================
+RecordStr = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace = True,
+        min_length = GATHERING_MIN_LEN_ADF,
+        max_length = GATHERING_MAX_LEN_ADF,
+        pattern = r"^[\x20-\x7E]+$",
+    )
+]
+
 class User(BaseModel):
-    username: Optional[str] = None
     token: str
+
+class UserBody(User):
+    attribute: str
+    record: RecordStr
 
 class Interests(User):
     interests: list[str]
@@ -36,14 +58,45 @@ class Questions(User):
 # ===============================
 #        Fast API Router
 # ===============================
-router = APIRouter(prefix="/services/gathering", tags=["challenges"])
-
+router = APIRouter(prefix="/services/gathering", tags=["gathering"])
 
 
 
 # ==============================================
 # ================== ROUTES ====================
 # ==============================================
+
+# ==========================
+#            set
+# ==========================
+@router.post("/set", status_code = 200)
+def update_user(payload: UserBody):
+    valid_token, user_id = session.verify_session(payload.token)
+    if not valid_token:
+        raise HTTPException(status_code = 400, detail = "Invalid or missing token")
+    attribute = payload.attribute.strip()
+    if attribute not in GATHERING_ALLOWED_DATA_FIELDS:
+        raise HTTPException(status_code = 401, detail = "Unsupported attribute")
+    # Special-case username to avoid collisions
+    if attribute == "username":
+        existing = db.find_one(
+            table_name="users",
+            filters={"username": payload.record},
+            projection={"_id": False, "user_id": True},
+        )
+        if existing and existing.get("user_id") != user_id:
+            raise HTTPException(status_code=409, detail="Username already in use")
+    try:
+        up_status = db.update_one(
+            table_name="users",
+            keys_dict={"user_id" : user_id},
+            values_dict={"$set": {payload.attribute: payload.record}}
+        )
+    except PyMongoError:
+        raise HTTPException(status_code = 402, detail = "Database error")
+    if up_status.matched_count == 0:
+            raise HTTPException(status_code = 403, detail = "User not found")
+    return {"status": True, "attribute": attribute, "new_record": payload.record}
 
 # ==========================
 #         interests
@@ -56,11 +109,11 @@ def set_interests(payload: Interests):
     # 1. Check session and insterests validity
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    label_index = {label.lower(): idx for idx, label in enumerate(REGISTER_INTERESTS_LABELS)}
+    label_index = {label.lower(): idx for idx, label in enumerate(GATHERING_INTERESTS_LABELS)}
     try:
         interests_idx = [label_index[i.lower()] for i in interests]
     except Exception:
-        raise HTTPException(status_code = 400, detail = f"Invalid interests format, check allowed interests labels: {REGISTER_INTERESTS_LABELS}")
+        raise HTTPException(status_code = 400, detail = f"Invalid interests format, check allowed interests labels: {GATHERING_INTERESTS_LABELS}")
     
     # 2. Update the user
     result = db.update_one(

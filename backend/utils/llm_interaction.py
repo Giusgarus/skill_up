@@ -1,5 +1,7 @@
+import json
 import os
 import logging
+from pathlib import Path
 from typing import Tuple, Dict, Any
 from datetime import timedelta
 import requests
@@ -8,27 +10,24 @@ from backend.utils import timing
 
 logger = logging.getLogger("llm_interaction")
 
-LLM_SERVER_URL = str(os.getenv("LLM_SERVER_URL", "http://localhost:8001"))
-LLM_SERVICE_TOKEN = os.getenv("LLM_SERVICE_TOKEN", None)
-LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))  # seconds
-LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
+# ==============================
+#         Load Variables
+# ==============================
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
+    _cfg: Dict[str, Any] = json.load(f)
+
+LLM_SERVER_URL = _cfg.get("LLM_SERVER_URL", "http://localhost:8001")
+LLM_SERVICE_TOKEN = _cfg.get("LLM_SERVICE_TOKEN")
+LLM_TIMEOUT = int(_cfg.get("LLM_TIMEOUT", 10))
+LLM_MAX_RETRIES = int(_cfg.get("LLM_MAX_RETRIES", 2))
 
 
-def get_session(retries: int = 2, backoff_factor: float = 0.3) -> requests.Session:
-    s = requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=(429, 502, 503, 504),
-        allowed_methods=frozenset(["POST", "GET", "PUT", "DELETE", "OPTIONS"])
-    )
-    s.mount("https://", HTTPAdapter(max_retries=retry))
-    s.mount("http://", HTTPAdapter(max_retries=retry))
-    return s
 
-
+# ==============================
+#          Functions
+# ==============================
 def validate_challenges(resp: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Parameters
@@ -140,8 +139,20 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     if LLM_SERVICE_TOKEN:
         headers["Authorization"] = f"Bearer {LLM_SERVICE_TOKEN}"
 
-    # 5. Send Request
-    session = get_session(retries=LLM_MAX_RETRIES)
+    # 5. Create session
+    session = requests.Session()
+    retry = Retry(
+        total=LLM_MAX_RETRIES,
+        read=LLM_MAX_RETRIES,
+        connect=LLM_MAX_RETRIES,
+        backoff_factor=0.3,
+        status_forcelist=(429, 502, 503, 504),
+        allowed_methods=frozenset(["POST", "GET", "PUT", "DELETE", "OPTIONS"])
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+
+    # 6. Send request
     try:
         logger.info("Calling LLM server %s (goal len=%d)", url, len(body["goal"]))
         resp = session.post(url, json=body, timeout=LLM_TIMEOUT, headers=headers)
@@ -149,7 +160,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         logger.error("Error contacting LLM server: %s", e, exc_info=True)
         return {"ok": False, "error": f"LLM server unreachable: {str(e)}"}
     
-    # 6. Handle response
+    # 7. Handle response
     if resp.status_code != 200:
         content_snippet = (resp.text[:500] + "...") if resp.text else ""
         logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
@@ -160,12 +171,12 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         logger.error("LLM server returned non-json response: %s", resp.text[:500])
         return {"ok": False, "error": "Invalid JSON from LLM server"}
     
-    # 7. Check for errors in the result
+    # 8. Check for errors in the result
     if isinstance(result, dict) and ("error" in result or "detail" in result):
         msg = result.get("error") or result.get("detail") or "LLM server reported an error"
         return {"ok": False, "error": f"LLM server: {msg}"}
 
-    # 8. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
+    # 9. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
     if isinstance(result, dict) and "challenges_list" in result:
         challenges = result.get("challenges_list") or []
         tasks: dict[str, dict[str, Any]] = {}
@@ -186,12 +197,12 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             "tasks": tasks,
             "n_tasks": len(tasks),
         }
-        return {"ok": True, "status": True, "result": converted}
+        return {"status": True, "result": converted}
 
-    # 9. Legacy validation path
+    # 10. Legacy validation path
     is_valid, validation_error = validate_challenges(result)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
         return {"ok": False, "error": f"Invalid LLM response: {validation_error}"}
     
-    return {"ok": True, "status": True, "result": result}
+    return {"status": True, "result": result}

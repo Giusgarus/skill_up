@@ -6,9 +6,8 @@ from fastapi import APIRouter, HTTPException
 import backend.db.database as db
 import backend.utils.session as session
 import backend.utils.timing as timing
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel
 from typing import Annotated, Set, Any, Dict, Optional
-from pymongo.errors import PyMongoError
 from pymongo import ReturnDocument, ASCENDING, DESCENDING
 import backend.utils.llm_interaction as llm
 import backend.utils.data_handler as dh
@@ -19,56 +18,21 @@ logger = logging.getLogger(__name__)
 # ==============================
 #         Load Variables
 # ==============================
-# backend/utils/config.py
-
-
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
-
 with CONFIG_PATH.open("r", encoding="utf-8") as f:
     _cfg: Dict[str, Any] = json.load(f)
 
-# Registrazione / onboarding
-REGISTER_QUESTIONS = _cfg.get("REGISTER_QUESTIONS", [])
-REGISTER_INTERESTS_LABELS = _cfg.get("REGISTER_INTERESTS_LABELS", [])
-
-# LLM
-LLM_SERVER_URL = _cfg.get("LLM_SERVER_URL", "http://localhost:8001")
-LLM_SERVICE_TOKEN = _cfg.get("LLM_SERVICE_TOKEN")
-LLM_TIMEOUT = int(_cfg.get("LLM_TIMEOUT", 10))
-LLM_MAX_RETRIES = int(_cfg.get("LLM_MAX_RETRIES", 2))
-
-# Challenges
 CHALLENGES_MIN_HEAP_K_LEADER = int(_cfg.get("CHALLENGES_MIN_HEAP_K_LEADER", 10))
-CHALLENGES_ALLOWED_DATA_FIELDS: Set[str] = set(
-    _cfg.get(
-        "CHALLENGES_ALLOWED_DATA_FIELDS",
-        ["score", "name", "surname", "height", "weight", "sex", "profile_pic"],
-    )
-)
-CHALLENGES_MIN_LEN_ADF = int(_cfg.get("CHALLENGES_MIN_LEN_ADF", 1))
-CHALLENGES_MAX_LEN_ADF = int(_cfg.get("CHALLENGES_MAX_LEN_ADF", 200000))
 CHALLENGES_DIFFICULTY_MAP = _cfg.get(
     "CHALLENGES_DIFFICULTY_MAP", {"easy": 1, "medium": 3, "hard": 5}
 )
+
+
 # ==============================
 #        Payload Classes
 # =================s=============
-RecordStr = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace = True,
-        min_length = CHALLENGES_MIN_LEN_ADF,
-        max_length = CHALLENGES_MAX_LEN_ADF,
-        pattern = r"^[\x20-\x7E]+$",
-    )
-]
-
 class User(BaseModel):
     token: str
-
-class UserBody(User):
-    attribute: str
-    record: RecordStr
 
 class Goal(User):
     goal: str
@@ -90,56 +54,10 @@ class Replan(Plan):
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
 
-def _get_active_plan_doc(user_id: str) -> dict | None:
-    """Return the latest non-deleted plan for the user."""
-    try:
-        collection = db.connect_to_db()["plans"]
-        return collection.find_one(
-            {"user_id": user_id, "deleted": False},
-            sort=[("created_at", DESCENDING), ("plan_id", DESCENDING)],
-            projection={"_id": False},
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Unable to fetch active plan for %s: %s", user_id, exc)
-        return None
-
-
 
 # ==============================================
 # ================== ROUTES ====================
 # ==============================================
-
-# ==========================
-#            set
-# ==========================
-@router.post("/set", status_code = 200)
-def update_user(payload: UserBody):
-    valid_token, user_id = session.verify_session(payload.token)
-    if not valid_token:
-        raise HTTPException(status_code = 400, detail = "Invalid or missing token")
-    attribute = payload.attribute.strip()
-    if attribute not in CHALLENGES_ALLOWED_DATA_FIELDS:
-        raise HTTPException(status_code = 401, detail = "Unsupported attribute")
-    # Special-case username to avoid collisions
-    if attribute == "username":
-        existing = db.find_one(
-            table_name="users",
-            filters={"username": payload.record},
-            projection={"_id": False, "user_id": True},
-        )
-        if existing and existing.get("user_id") != user_id:
-            raise HTTPException(status_code=409, detail="Username already in use")
-    try:
-        up_status = db.update_one(
-            table_name="users",
-            keys_dict={"user_id" : user_id},
-            values_dict={"$set": {payload.attribute: payload.record}}
-        )
-    except PyMongoError:
-        raise HTTPException(status_code = 402, detail = "Database error")
-    if up_status.matched_count == 0:
-            raise HTTPException(status_code = 403, detail = "User not found")
-    return {"status": True, "attribute": attribute, "new_record": payload.record}
 
 # ==========================
 #         task_done
@@ -157,20 +75,19 @@ def task_done(payload: Task) -> dict:
     if task_id is None:
         raise HTTPException(status_code = 403, detail = "Invalid Task ID")
     
-    proj_task = db.find_one_and_update(
+    # 1. Update task
+    task = db.find_one_and_update(
         table_name = "tasks",
         keys_dict = {"task_id" : task_id, "user_id" : user_id, "plan_id" : plan_id}, 
         values_dict = {"$set": {"completed_at": timing.now_iso()}}, 
         projection = {"_id" : False, "score" : True}, 
         return_policy = ReturnDocument.AFTER
     )
+    if not task:
+        raise HTTPException(status_code = 404, detail = "Task not found")
 
-    # 2. Update users
-    score = proj_task["score"] if proj_task else None
-    if score is None:
-        raise HTTPException(status_code = 404, detail = "Invalid score in Task ID")
-    
-    res = db.update_one(
+    # 2. Update plans
+    plan = db.find_one_and_update(
         table_name="plans",
         keys_dict={"user_id": user_id, "plan_id": plan_id},
         values_dict=[
@@ -178,49 +95,52 @@ def task_done(payload: Task) -> dict:
                 "$set": {
                     "n_tasks_done": {"$add": ["$n_tasks_done", 1]},
                     "completed_at": {
-                        "$cond": [
+                        "$cond": [ # sintax --> "$cond": [condition, true_case, false_case]
                             {
                                 "$and": [
                                     {
                                         "$eq": [
-                                            {"$add": ["$n_tasks_done", 1]},  # new value
+                                            {"$add": ["$n_tasks_done", 1]}, # n_tasks_done+1 because is incremented now
                                             "$n_tasks",
                                         ]
                                     },
-                                    # only set once, when previously null
                                     {"$eq": ["$completed_at", None]},
                                 ]
-                            },
-                            "$$NOW",          # server time
-                            "$completed_at",  # keep existing value
+                            },                  # condition --> (n_tasks_done + 1 == n_tasks) AND (completed_at is None)
+                            "$$NOW",            # true_case --> server time
+                            "$completed_at",    # false_case --> current value
                         ]
                     },
                 }
             }
         ],
+        projection={"_id": False, "completed_at": True},
+        return_policy=ReturnDocument.AFTER
     )
-    if res.matched_count == 0:
+    if not plan:
         raise HTTPException(status_code = 405, detail = "Plan not found")
-
-    proj_user_data = db.find_one_and_update(
+    
+    # 3. Update users
+    if plan["completed_at"] is not None:
+        pull_active_plan = {"$pull": {"active_plans": plan_id}}
+    else:
+        pull_active_plan = {}
+    user = db.find_one_and_update(
         table_name = "users",
         keys_dict = {"user_id": user_id},
-        values_dict = {"$inc": {"n_tasks_done": 1, "score": score}},
+        values_dict = {
+            "$inc": {"n_tasks_done": 1, "score": task["score"]},
+            **pull_active_plan
+        },
         projection = {"_id": False, "username": True, "score": True}, 
         return_policy = ReturnDocument.AFTER
     )
-
-    if not proj_user_data:
+    if not user:
         raise HTTPException(status_code = 406, detail = "User not found after update")
-    
-    new_score = proj_user_data["score"]
-    username = proj_user_data["username"]
-
-    if new_score is None or not username:
+    if user["score"] is None or not user["username"]:
         raise HTTPException(status_code = 407, detail = "Invalid projection after updating user")
-
     
-    # 3. Update medals
+    # 4. Update medals
     if payload.medal_taken and payload.medal_taken != "None":
         day_str = timing.now().date().isoformat()
         res = db.update_one(
@@ -239,15 +159,15 @@ def task_done(payload: Task) -> dict:
         if not (res.matched_count or res.upserted_id):
             raise HTTPException(status_code = 408, detail = "Invalid medal passed")
         
-    # 4. Update leaderboard
+    # 5. Update leaderboard
     db.update_one(
         table_name = "leaderboard",
         keys_dict = {"_id": "topK"},
         values_dict = {
-            "$pull": {"items": {"username": username}},
+            "$pull": {"items": {"username": user["username"]}},
             "$push": {
                 "items": {
-                    "$each": [{"username": username, "score": new_score}],
+                    "$each": [{"username": user["username"], "score": user["score"]}],
                     "$sort": {"score": -1, "username": 1},
                     "$slice": CHALLENGES_MIN_HEAP_K_LEADER
                 }
@@ -255,7 +175,7 @@ def task_done(payload: Task) -> dict:
         }
     )
     
-    return {"status" : True, "score": new_score}
+    return {"status" : True, "score": user["score"]}
 
 
 # ==========================
@@ -279,40 +199,55 @@ def get_llm_response(payload: Goal) -> dict:
         "user_info": dh.get_user_info(user_id)
     }
     llm_resp = llm.get_llm_response(llm_payload)
-    if not llm_resp.get("ok"):
+    if not llm_resp.get("status"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
-
     tasks_dict = dict(llm_resp["result"]["tasks"])
     
-    # 3. Update Database --> we store the whole structure now
-    proj = db.find_one_and_update(
+    # 3. Update users
+    user = db.find_one(
+        table_name="users", 
+        filters={"user_id" : user_id}, 
+        projection = {"_id" : False, "n_plans" : True}
+    )
+    if not user or "n_plans" not in user:
+        raise HTTPException(status_code = 503, detail = "Invalid User ID in projection while creating plan")
+    plan_id = user["n_plans"]
+    res = db.update_one(
         table_name="users", 
         keys_dict = {"user_id" : user_id}, 
-        values_dict = {"$inc" : {"n_plans" : 1}}, 
-        projection = {"_id" : False, "n_plans" : True},
-        return_policy = ReturnDocument.AFTER
+        values_dict = {
+            "$inc" : {"n_plans" : 1},
+            "$push": {"active_plans": plan_id}
+        },
     )
-    if not proj or "n_plans" not in proj:
-        raise HTTPException(status_code = 503, detail = "Invalid User ID in projection while creating plan")
-    plan_id = proj["n_plans"]
-    difficulty_values = [CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1) for _, task in tasks_dict.items()]
-    plan = {
-        "plan_id" : plan_id,
-        "user_id" : user_id,
-        "n_tasks" : len(tasks_dict),
-        "responses": [],
-        "prompts": [],
-        "deleted": False,
-        "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
-        "n_tasks_done": 0,
-        "created_at": timing.now_iso(),
-        "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
-        "n_replans": 0,
-        "tasks": [{date: [task] for date, task in tasks_dict.items()}],
-    }
-    db.insert("plans", plan)
+    if res.matched_count == 0:
+        raise HTTPException(status_code = 504, detail = "User not found while creating plan")
+
+    # 4. Create plan
+    difficulty_values: list[int] = [CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1) for _, task in tasks_dict.items()]
+    res = db.insert(
+        table_name="plans",
+        record={
+            "plan_id" : plan_id,
+            "user_id" : user_id,
+            "n_tasks" : len(tasks_dict),
+            "responses": [],
+            "prompts": [],
+            "deleted": False,
+            "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
+            "n_tasks_done": 0,
+            "created_at": timing.now_iso(),
+            "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
+            "n_replans": 0,
+            "tasks": [{date: [task] for date, task in tasks_dict.items()}],
+        }
+    )
+    if not res:
+        raise HTTPException(status_code = 505, detail = "Database error while creating plan")
+
+    # 5. Create tasks
     tasks: list[dict[str, Any]] = []
     for i, (date, task) in enumerate(tasks_dict.items()):
         timing.from_iso_to_datetime(date)
@@ -334,19 +269,22 @@ def get_llm_response(payload: Goal) -> dict:
             }
         )
     db.insert_many("tasks", tasks)
-    safe_tasks = [{k: v for k, v in task.items() if k != "_id"} for task in tasks]
+
+    # 6. Prepare the return
+    if "_id" in tasks_dict:
+        del tasks_dict["_id"] # remove _id field if present
 
     return {
         "status": True,
         "plan_id": plan_id,
-        "tasks": safe_tasks,
-        "data": llm_resp["result"],
         "prompt": llm_resp["result"].get("prompt"),
+        "response": llm_resp["result"].get("response"),
+        "tasks": tasks_dict
     }
 
 
 # ==========================
-#       prompt/delete
+#        plan/delete
 # ==========================
 @router.post("/plan/delete", status_code = 200)
 def delete_plan(payload: Plan) -> dict:
@@ -354,43 +292,86 @@ def delete_plan(payload: Plan) -> dict:
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
-    res = db.update_one("plans", keys_dict = {"user_id" : user_id, "plan_id" : plan_id}, values_dict = {"$set" : {"deleted" : True}})
+    res = db.update_one(
+        table_name="plans",
+        keys_dict={"user_id" : user_id, "plan_id" : plan_id},
+        values_dict = {"$set" : {"deleted" : True}, "$pull": {"active_plans": plan_id}}
+    )
     if res.matched_count == 0:
         raise HTTPException(status_code = 402, detail = "Invalid Plan in Tables")
     return {"status" : True}
 
 
+# ==========================
+#       plan/active
+# ==========================
 @router.post("/plan/active", status_code=200)
 def get_active_plan(payload: User) -> dict:
     ok, user_id = session.verify_session(payload.token)
+
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
-    plan_doc = _get_active_plan_doc(user_id)
-    if plan_doc is None:
+    
+    # 1. Get the active plans
+    user = db.find_one(
+        table_name="users",
+        filters={"user_id": user_id},
+        projection={"_id": False, "active_plans": True}
+    )
+    if not user:
         raise HTTPException(status_code=404, detail="No active plan found")
-    try:
-        tasks_cursor = (
-            db.connect_to_db()["tasks"]
-            .find(
-                {"user_id": user_id, "plan_id": plan_doc["plan_id"], "deleted": False},
-                {"_id": False},
-            )
-            .sort([("task_id", ASCENDING)])
+    
+    # 2. Get the plans and their tasks
+    all_plans = []
+    for plan_id in user.get("active_plans", []):
+        # get the plan
+        plan = db.find_one(
+            table_name="plans",
+            filters={"user_id": user_id, "plan_id": plan_id},
+            projection={
+                "_id": False,
+                "plan_id": True,
+                "created_at": True,
+                "expected_complete": True,
+                "n_tasks": True,
+                "n_tasks_done": True,
+                "n_replans": True,
+                "deleted": True,
+                "tasks": True
+            },
         )
-        tasks = list(tasks_cursor)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to fetch tasks for plan %s: %s", plan_doc["plan_id"], exc)
-        raise HTTPException(status_code=500, detail="Unable to fetch plan tasks")
-    plan_payload = {
-        "plan_id": plan_doc.get("plan_id"),
-        "created_at": plan_doc.get("created_at"),
-        "expected_complete": plan_doc.get("expected_complete"),
-        "n_tasks": plan_doc.get("n_tasks"),
-        "n_tasks_done": plan_doc.get("n_tasks_done", 0),
-        "n_replans": plan_doc.get("n_replans", 0),
-        "deleted": plan_doc.get("deleted", False),
+        if not plan:
+            logger.warning(f"Active plan '{plan_id}' for user '{user_id}' not found in plans collection")
+            all_plans.append({"plan_id": plan_id, "error": "Plan not found"})
+            continue
+        # get tasks of the plan
+        plan["tasks_all_info"] = []
+        tasks = db.find_one(
+            table_name="tasks",
+            filters={"user_id": user_id, "plan_id": plan_id},
+            projection={
+                "_id": False,
+                "task_id": True,
+                "title": True,
+                "description": True,
+                "difficulty": True,
+                "score": True,
+                "deadline_date": True,
+                "completed_at": True,
+                "deleted": True,
+            }
+        )
+        if not tasks:
+            logger.warning(f"Failed to fetch tasks for plan '{plan_id}' of user '{user_id}'")
+            continue
+        plan["tasks_all_info"].append(tasks)
+        # update plans
+        all_plans.append(plan)
+
+    return {
+        "status": True,
+        "plans": all_plans
     }
-    return {"status": True, "plan": plan_payload, "tasks": tasks}
 
 
 # ==========================
@@ -421,7 +402,7 @@ def replan(payload: Replan):
         "user_info": dh.get_user_info(user_id)
     }
     llm_resp = llm.get_llm_response(llm_payload)
-    if not llm_resp.get("ok"):
+    if not llm_resp.get("status"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")

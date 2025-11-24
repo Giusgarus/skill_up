@@ -92,7 +92,7 @@ def delete(table_name: str, filter: dict = {}):
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_one(table_name: str, filters: dict = {}, projection: dict = None) -> list:
+def find_one(table_name: str, filters: dict = {}, projection: dict = None):
     db = connect_to_db()
     try:
         cursor = db[table_name].find_one(filter = filters, projection = projection) # automatically handles the None cases

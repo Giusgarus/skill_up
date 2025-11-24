@@ -36,7 +36,6 @@ router = APIRouter(prefix="/services/auth", tags=["auth"])
 
 
 
-
 # ==============================================
 # ================== ROUTES ====================
 # ==============================================
@@ -86,6 +85,7 @@ def register(payload: Register) -> dict:
         "interests_info": [],
         "selections_info": [],
         "questions_info": [None for _ in range(10)],
+        "active_plans": [],
         "about": None,
         "day_routine": None,
         "organized": None,

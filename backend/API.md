@@ -29,9 +29,9 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
     "height": "<string>",
     "weight": "<string>",
     "sex": "<string>",
-    // index of the fields selected (the list of the associated strings are in /backend/utils/.env file)
+    // index of the fields selected (the list of the associated strings are in /backend/utils/env.json file)
     "interests_info": ["<int>", ..., "<int>"],
-    // answers to the questions based on the index (the list of the associated questions are in /backend/utils/.env file)
+    // answers to the questions based on the index (the list of the associated questions are in /backend/utils/env.json file)
     "questions_info": ["<int>", ..., "<int>"],
     // MEDALS:
     // Qui facciamo così, se il timestamp giorno esiste, sappiamo che quel giorno l'utente ha preso una medaglia. In caso esista, il task che ha fatto prendere la medaglia x è task_id.
@@ -40,7 +40,8 @@ MongoDB collections (“tables”) with indexes and **main logic** for **registr
       "timestamp_giorno": [{"task_id": "<string>", "medal": "B"|"S"|"G"|"None"}],
       "timestamp_giorno": [{"task_id": "<string>", "medal": "B"|"S"|"G"|"None"}],
       ...
-    }
+    },
+    "active_plans": ["<plan_id>", ..., "<plan_id>"]
   },
   .
   .
