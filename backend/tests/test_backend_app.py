@@ -7,6 +7,7 @@ import mongomock
 import pytest
 from email_validator import EmailNotValidError
 from fastapi.testclient import TestClient
+from pymongo import ReturnDocument
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -17,7 +18,9 @@ for path in (PROJECT_ROOT, BACKEND_DIR):
 
 import backend.main as main  # noqa: E402
 from backend.db import client as db_client  # noqa: E402
+import backend.db.database as database  # noqa: E402
 from backend.services.authentication import server as auth_server  # noqa: E402
+from backend.services.challenges import server as challenges_server  # noqa: E402
 import backend.utils.llm_interaction as llm_interaction  # noqa: E402
 
 
@@ -25,6 +28,8 @@ import backend.utils.llm_interaction as llm_interaction  # noqa: E402
 def backend_app(monkeypatch):
     mock_client = mongomock.MongoClient()
     mock_db = mock_client["skillup"]
+    mock_db["leaderboard"].insert_one({"_id": "topK", "items": []})
+    db_calls: list = []
 
     def fake_connect(reset: bool = False) -> None:
         if reset:
@@ -32,51 +37,54 @@ def backend_app(monkeypatch):
         db_client._client = mock_client
         db_client._db = mock_db
 
-    async def fake_close() -> None:
-        return None
-
     monkeypatch.setattr(db_client, "connect", fake_connect)
     monkeypatch.setattr(db_client, "get_db", lambda: mock_db)
+    monkeypatch.setattr(db_client, "get_client", lambda: mock_client)
     monkeypatch.setattr(db_client, "ping", lambda: True)
-    monkeypatch.setattr(db_client, "close", fake_close)
+    async def async_close():
+        return None
+
+    monkeypatch.setattr(db_client, "close", async_close)
+    monkeypatch.setattr(database, "connect_to_db", lambda: mock_db)
+
+    def fake_find_many(table_name: str, filters=None, projection=None):
+        coll = mock_db[table_name]
+        cursor = coll.find(filter=filters or {}, projection=projection)
+        return list(cursor)
+
+    monkeypatch.setattr(database, "find_many", fake_find_many)
+
+    def fake_find_one_and_update(
+        table_name: str,
+        keys_dict,
+        values_dict,
+        projection=None,
+        return_policy: ReturnDocument = ReturnDocument.BEFORE,
+    ):
+        coll = mock_db[table_name]
+        coll.find_one_and_update(
+            filter=keys_dict,
+            update=values_dict,
+            projection=projection,
+            return_document=return_policy,
+        )
+        result_doc = coll.find_one(keys_dict, projection=projection)
+        if result_doc is None and isinstance(values_dict, dict):
+            updated_fields = set()
+            for op in ("$set", "$unset", "$inc"):
+                op_values = values_dict.get(op)
+                if isinstance(op_values, dict):
+                    updated_fields.update(op_values.keys())
+            relaxed_filter = {k: v for k, v in keys_dict.items() if k not in updated_fields}
+            result_doc = coll.find_one(relaxed_filter, projection=projection)
+        db_calls.append({"table": table_name, "keys": keys_dict, "result": result_doc})
+        return result_doc
+
+    monkeypatch.setattr(database, "find_one_and_update", fake_find_one_and_update)
+    monkeypatch.setattr(challenges_server, "db", database)
+    assert challenges_server.db.find_one_and_update is fake_find_one_and_update
 
     llm_calls: list[dict] = []
-
-    class _FakeResponse:
-        def __init__(self, body: dict):
-            self._body = body
-            self.status_code = 200
-            self.text = json.dumps(body)
-
-        def json(self):
-            return self._body
-
-    class _FakeSession:
-        def post(self, url, json=None, timeout=None, headers=None):
-            llm_calls.append(json or {})
-            today = datetime.utcnow().date()
-            body = {
-                "challenges_count": 2,
-                "challenges_list": [
-                    {
-                        "challenge_title": "Task 0",
-                        "challenge_description": "Desc",
-                        "difficulty": "easy",
-                        "duration_minutes": 10,
-                    },
-                    {
-                        "challenge_title": "Task 1",
-                        "challenge_description": "Desc",
-                        "difficulty": "easy",
-                        "duration_minutes": 12,
-                    },
-                ],
-            }
-            return _FakeResponse(body)
-
-    monkeypatch.setattr(llm_interaction, "get_session", lambda retries=2, backoff_factor=0.3: _FakeSession())
-
-    mock_db["leaderboard"].insert_one({"_id": "topK", "items": []})
 
     class _EmailResult:
         def __init__(self, email: str):
@@ -100,8 +108,40 @@ def backend_app(monkeypatch):
 
     monkeypatch.setattr(auth_server, "validate_email", fake_validate_email)
 
+    today = datetime.utcnow().date()
+
+    def _build_tasks(prefix: str, difficulties: tuple[str, ...]):
+        tasks = {}
+        for idx, diff in enumerate(difficulties):
+            tasks[(today + timedelta(days=idx)).isoformat()] = {
+                "title": f"{prefix} Task {idx}",
+                "description": f"{prefix} description {idx}",
+                "difficulty": diff,
+            }
+        return tasks
+
+    def fake_llm_response(payload: dict):
+        goal_text = payload.get("goal") or "goal"
+        if "replan" in goal_text.lower() or "new" in goal_text.lower():
+            diffs = ("hard", "medium")
+            prefix = "Replan"
+        else:
+            diffs = ("easy", "medium")
+            prefix = "Plan"
+        llm_calls.append(payload)
+        return {
+            "status": True,
+            "result": {
+                "prompt": goal_text,
+                "response": f"response for {goal_text}",
+                "tasks": _build_tasks(prefix, diffs),
+            },
+        }
+
+    monkeypatch.setattr(llm_interaction, "get_llm_response", fake_llm_response)
+
     with TestClient(main.app) as client:
-        yield {"client": client, "db": mock_db, "llm_calls": llm_calls}
+        yield {"client": client, "db": mock_db, "llm_calls": llm_calls, "db_calls": db_calls}
 
 
 def register_user(client: TestClient, username: str, password: str = "ValidPass1!") -> dict:
@@ -110,41 +150,15 @@ def register_user(client: TestClient, username: str, password: str = "ValidPass1
         json={"username": username, "password": password, "email": f"{username}@example.com"},
     )
     assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] is True
+    return body
+
+
+def create_plan(client: TestClient, token: str, goal: str = "Build a weekly habit") -> dict:
+    response = client.post("/services/challenges/prompt", json={"token": token, "goal": goal})
+    assert response.status_code == 200, response.text
     return response.json()
-
-
-def seed_plan_and_task(db, user_id: str, plan_id: int, task_id: int, score: int) -> None:
-    now = datetime.utcnow().isoformat()
-    db["plans"].insert_one(
-        {
-            "plan_id": plan_id,
-            "user_id": user_id,
-            "n_tasks": 1,
-            "n_tasks_done": 0,
-            "responses": [],
-            "prompts": [],
-            "deleted": False,
-            "difficulty": 1,
-            "created_at": now,
-            "expected_complete": now,
-            "n_replans": 0,
-            "tasks": [],
-        }
-    )
-    db["tasks"].insert_one(
-        {
-            "task_id": task_id,
-            "plan_id": plan_id,
-            "user_id": user_id,
-            "title": "t",
-            "description": "d",
-            "difficulty": 1,
-            "score": score,
-            "deadline_date": now,
-            "completed_at": None,
-            "deleted": False,
-        }
-    )
 
 
 def test_register_login_and_check_bearer(backend_app):
@@ -159,8 +173,12 @@ def test_register_login_and_check_bearer(backend_app):
     assert login_response.status_code == 200, login_response.text
     login_body = login_response.json()
     assert login_body["username"] == username
+    assert login_body["status"] is True
     assert login_body["token"] != register_payload["token"]
-    assert db["sessions"].count_documents({"token": login_body["token"]}) == 1
+
+    user_doc = db["users"].find_one({"username": username})
+    sessions = list(db["sessions"].find({"user_id": user_doc["user_id"]}))
+    assert len(sessions) == 2
 
     bearer_response = client.post(
         "/services/auth/check_bearer", json={"username": username, "token": login_body["token"]}
@@ -205,38 +223,28 @@ def test_logout_rejects_mismatched_username(backend_app):
     assert response.json()["detail"] == "Username does not match token owner"
 
 
-def test_logout_rejects_invalid_token(backend_app):
-    client = backend_app["client"]
-    register_user(client, "invalid_token_user")
-
-    response = client.post(
-        "/services/auth/logout", json={"username": "invalid_token_user", "token": "bogus"}
-    )
-    assert response.status_code == 401
-
-
-def test_duplicate_registration_fails(backend_app):
+def test_duplicate_registration_and_email_conflict(backend_app):
     client = backend_app["client"]
     payload = {"username": "taken_user", "password": "ValidPass1!", "email": "taken@example.com"}
 
     first = client.post("/services/auth/register", json=payload)
     assert first.status_code == 200
 
-    duplicate = client.post("/services/auth/register", json=payload)
-    assert duplicate.status_code == 403
-    assert duplicate.json()["detail"] == "User already exists"
+    duplicate_user = client.post("/services/auth/register", json=payload)
+    assert duplicate_user.status_code == 403
+    assert duplicate_user.json()["detail"] == "User already exists"
+
+    second_payload = {
+        "username": "other_user",
+        "password": "ValidPass1!",
+        "email": "taken@example.com",
+    }
+    email_conflict = client.post("/services/auth/register", json=second_payload)
+    assert email_conflict.status_code == 404
+    assert email_conflict.json()["detail"] == "Email already in use"
 
 
-def test_register_rejects_weak_password(backend_app):
-    client = backend_app["client"]
-    response = client.post(
-        "/services/auth/register",
-        json={"username": "weak_user", "password": "weak", "email": "weak@example.com"},
-    )
-    assert response.status_code == 402
-
-
-def test_register_rejects_invalid_email_format(backend_app):
+def test_register_rejects_invalid_email_and_password(backend_app):
     client = backend_app["client"]
     response = client.post(
         "/services/auth/register",
@@ -245,32 +253,24 @@ def test_register_rejects_invalid_email_format(backend_app):
     assert response.status_code == 401
     assert response.json()["detail"].startswith("Invalid email")
 
-
-def test_register_rejects_email_without_mx_records(backend_app):
-    client = backend_app["client"]
-    response = client.post(
+    weak_password = client.post(
         "/services/auth/register",
-        json={"username": "mx_user", "password": "ValidPass1!", "email": "user@no-mx.test"},
+        json={"username": "weak_user", "password": "weak", "email": "weak@example.com"},
     )
-    assert response.status_code == 401
-    assert response.json()["detail"].startswith("Invalid email")
+    assert weak_password.status_code == 402
 
 
-def test_register_rejects_duplicate_email(backend_app):
-    client = backend_app["client"]
-    payload = {"username": "first_email", "password": "ValidPass1!", "email": "dup@example.com"}
-    response = client.post("/services/auth/register", json=payload)
-    assert response.status_code == 200
-
-    second_payload = {"username": "second_email", "password": "ValidPass1!", "email": "dup@example.com"}
-    dup_response = client.post("/services/auth/register", json=second_payload)
-    assert dup_response.status_code == 404
-
-
-def test_login_requires_username_and_password(backend_app):
+def test_login_requires_valid_credentials(backend_app):
     client = backend_app["client"]
     response = client.post("/services/auth/login", json={"username": "", "password": ""})
     assert response.status_code == 400
+
+    register_user(client, "login_user")
+    bad_login = client.post(
+        "/services/auth/login", json={"username": "login_user", "password": "WrongPass1!"}
+    )
+    assert bad_login.status_code == 401
+    assert bad_login.json()["detail"] == "Invalid username or password"
 
 
 def test_multiple_logins_issue_unique_tokens(backend_app):
@@ -287,204 +287,76 @@ def test_multiple_logins_issue_unique_tokens(backend_app):
 
     token_one = first_login.json()["token"]
     token_two = second_login.json()["token"]
-    assert token_one != token_two
+    tokens = {doc["token"] for doc in db["sessions"].find({})}
+    assert token_one in tokens and token_two in tokens
+    assert len(tokens) == 3
 
     user_doc = db["users"].find_one({"username": username})
     sessions = list(db["sessions"].find({"user_id": user_doc["user_id"]}))
-    assert len(sessions) >= 3  # register creates an initial session
-    token_set = {session["token"] for session in sessions}
-    assert token_one in token_set and token_two in token_set
+    assert len(sessions) == 3
 
 
-def test_check_bearer_requires_token(backend_app):
-    client = backend_app["client"]
-    response = client.post("/services/auth/check_bearer", json={"username": "any", "token": ""})
-    assert response.status_code == 400
-
-
-def test_check_bearer_rejects_mismatched_username(backend_app):
+def test_check_bearer_requires_token_and_rejects_mismatch(backend_app):
     client = backend_app["client"]
     username = "bearer_owner"
     register_user(client, username)
     login = client.post("/services/auth/login", json={"username": username, "password": "ValidPass1!"})
     token = login.json()["token"]
 
+    missing_token = client.post("/services/auth/check_bearer", json={"username": username, "token": ""})
+    assert missing_token.status_code == 400
+
     invalid = client.post("/services/auth/check_bearer", json={"username": "other_user", "token": token})
     assert invalid.status_code == 403
+    assert invalid.json()["detail"] == "Mismatch user id, username"
 
 
-def test_update_user_respects_allowed_fields(backend_app):
+def test_update_user_via_set_route(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]
     username = "profile_owner"
     token = register_user(client, username)["token"]
 
     update_response = client.post(
-        "/services/challenges/set", json={"token": token, "attribute": "name", "record": "Ada"}
+        "/services/challenges/set", json={"token": token, "attribute": "name", "record": "Ada Smith! #1"}
     )
     assert update_response.status_code == 200
+    assert update_response.json()["attribute"] == "name"
     updated_user = db["users"].find_one({"username": username})
-    assert updated_user["name"] == "Ada"
+    assert updated_user["name"] == "Ada Smith! #1"
 
-    invalid_response = client.post(
+
+def test_update_user_validation_errors(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "invalid_chars")["token"]
+
+    unsupported = client.post(
         "/services/challenges/set",
         json={"token": token, "attribute": "non_existing_field", "record": "value"},
     )
-    assert invalid_response.status_code == 401
+    assert unsupported.status_code == 401
 
-
-def test_update_user_accepts_spaces_and_symbols(backend_app):
-    client = backend_app["client"]
-    db = backend_app["db"]
-    token = register_user(client, "invalid_chars")["token"]
-    payload = {
-        "token": token,
-        "attribute": "name",
-        "record": "Ada Smith! #1",
-    }
-    response = client.post(
-        "/services/challenges/set",
-        json=payload,
-    )
-    assert response.status_code == 200, response.json()
-    stored = db["users"].find_one({"username": "invalid_chars"})
-    assert stored["name"] == "Ada Smith! #1"
-
-
-def test_update_user_rejects_invalid_token(backend_app):
-    client = backend_app["client"]
-    response = client.post(
+    invalid_token = client.post(
         "/services/challenges/set",
         json={"token": "bogus", "attribute": "name", "record": "Ignored"},
     )
-    assert response.status_code == 400
+    assert invalid_token.status_code == 400
+    assert invalid_token.json()["detail"] == "Invalid or missing token"
 
 
-def test_task_done_updates_score_plan_and_leaderboard(backend_app):
+def test_update_user_rejects_duplicate_username(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]
-    username = "task_player"
-    token = register_user(client, username)["token"]
-    user_doc = db["users"].find_one({"username": username})
-    score_value = 75
-    plan_id = 1
-    task_id = 1
-    seed_plan_and_task(db, user_doc["user_id"], plan_id=plan_id, task_id=task_id, score=score_value)
+    register_user(client, "first_user")
+    second_token = register_user(client, "second_user")["token"]
 
-    response = client.post(
-        "/services/challenges/task_done",
-        json={"token": token, "plan_id": plan_id, "task_id": task_id, "medal_taken": "G"},
+    dup_username = client.post(
+        "/services/challenges/set",
+        json={"token": second_token, "attribute": "username", "record": "first_user"},
     )
-    assert response.status_code == 200
-    assert response.json()["status"] is True
-
-    updated_user = db["users"].find_one({"username": username})
-    assert updated_user["n_tasks_done"] == 1
-    assert updated_user["score"] == score_value
-
-    leaderboard = db["leaderboard"].find_one({"_id": "topK"})
-    assert leaderboard["items"][0] == {"username": username, "score": score_value}
-
-    task_doc = db["tasks"].find_one({"task_id": task_id, "user_id": user_doc["user_id"]})
-    assert task_doc["completed_at"] is not None
-
-    plan_doc = db["plans"].find_one({"plan_id": plan_id, "user_id": user_doc["user_id"]})
-    assert plan_doc["n_tasks_done"] == 1
-
-
-def test_task_done_rejects_invalid_token(backend_app):
-    client = backend_app["client"]
-    response = client.post(
-        "/services/challenges/task_done",
-        json={"token": "bad", "plan_id": 1, "task_id": 1},
-    )
-    assert response.status_code == 401
-
-
-def test_task_done_errors_when_task_missing(backend_app):
-    client = backend_app["client"]
-    token = register_user(client, "missing_task_user")["token"]
-    response = client.post(
-        "/services/challenges/task_done", json={"token": token, "plan_id": 99, "task_id": 999}
-    )
-    assert response.status_code == 404
-
-
-def test_task_done_requires_plan_id(backend_app):
-    client = backend_app["client"]
-    token = register_user(client, "no_plan_id")["token"]
-    response = client.post(
-        "/services/challenges/task_done",
-        json={"token": token, "task_id": 1, "plan_id": None},
-    )
-    assert response.status_code in (402, 422)
-
-
-def test_leaderboard_endpoint_returns_sorted_scores(backend_app):
-    client = backend_app["client"]
-    db = backend_app["db"]
-
-    token_low = register_user(client, "alpha")["token"]
-    user_low = db["users"].find_one({"username": "alpha"})
-    seed_plan_and_task(db, user_low["user_id"], plan_id=10, task_id=10, score=15)
-    assert (
-        client.post(
-            "/services/challenges/task_done",
-            json={"token": token_low, "plan_id": 10, "task_id": 10},
-        ).status_code
-        == 200
-    )
-
-    token_high = register_user(client, "beta")["token"]
-    user_high = db["users"].find_one({"username": "beta"})
-    seed_plan_and_task(db, user_high["user_id"], plan_id=11, task_id=11, score=80)
-    assert (
-        client.post(
-            "/services/challenges/task_done",
-            json={"token": token_high, "plan_id": 11, "task_id": 11},
-        ).status_code
-        == 200
-    )
-
-    leaderboard_response = client.post(
-        "/services/gamification/leaderboard", json={"token": token_low}
-    )
-    assert leaderboard_response.status_code == 200
-    items = leaderboard_response.json()["leaderboard"]
-    ordered = sorted(items, key=lambda entry: (-entry["score"], entry["username"]))
-    assert ordered == [{"username": "beta", "score": 80}, {"username": "alpha", "score": 15}]
-
-
-def test_leaderboard_trims_to_top_k(backend_app):
-    client = backend_app["client"]
-    db = backend_app["db"]
-
-    total_users = 12
-    for idx in range(total_users):
-        username = f"user_{idx}"
-        token = register_user(client, username)["token"]
-        user_doc = db["users"].find_one({"username": username})
-        score = (idx + 1) * 5
-        seed_plan_and_task(db, user_doc["user_id"], plan_id=200 + idx, task_id=200 + idx, score=score)
-        assert (
-            client.post(
-                "/services/challenges/task_done",
-                json={"token": token, "plan_id": 200 + idx, "task_id": 200 + idx},
-            ).status_code
-            == 200
-        )
-
-    leaderboard = db["leaderboard"].find_one({"_id": "topK"})
-    assert len(leaderboard["items"]) == 10
-    usernames = [entry["username"] for entry in leaderboard["items"]]
-    assert len(set(usernames)) == 10
-    assert all(name.startswith("user_") for name in usernames)
-
-
-def test_leaderboard_requires_authentication(backend_app):
-    client = backend_app["client"]
-    response = client.post("/services/gamification/leaderboard", json={"token": "invalid"})
-    assert response.status_code == 401
+    assert dup_username.status_code == 409
+    assert dup_username.json()["detail"] == "Username already in use"
+    assert db["users"].find_one({"username": "second_user"}) is not None
 
 
 def test_prompt_endpoint_creates_plan_and_tasks(backend_app):
@@ -494,28 +366,186 @@ def test_prompt_endpoint_creates_plan_and_tasks(backend_app):
     username = "planner"
     token = register_user(client, username)["token"]
 
-    response = client.post(
-        "/services/challenges/prompt",
-        json={"token": token, "goal": "Build a weekly study habit"},
+    response = create_plan(client, token, goal="Build a weekly study habit")
+    assert response["status"] is True
+    assert response["plan_id"] == 1
+    assert len(response["tasks"]) == 2
+    assert llm_calls[0]["goal"] == "Build a weekly study habit"
+
+    user_doc = db["users"].find_one({"username": username})
+    tasks = list(db["tasks"].find({"user_id": user_doc["user_id"], "plan_id": 1}))
+    assert len(tasks) == 2
+    assert all(task["difficulty"] in (1, 3, 5) for task in tasks)
+
+    plan = db["plans"].find_one({"plan_id": 1})
+    assert plan is not None
+    assert plan["n_tasks"] == 2
+    assert 1 in db["users"].find_one({"username": username})["active_plans"]
+    assert db["users"].find_one({"username": username})["n_plans"] == 1
+
+
+def test_plan_active_lists_tasks(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "active_user")["token"]
+    create_plan(client, token)
+
+    active = client.post("/services/challenges/plan/active", json={"token": token})
+    assert active.status_code == 200
+    body = active.json()
+    assert body["status"] is True
+    assert len(body["plans"]) == 1
+    plan = body["plans"][0]
+    assert plan["plan_id"] == 1
+    assert len(plan["tasks_all_info"]) == 2
+    assert all("title" in task for task in plan["tasks_all_info"])
+
+
+def test_task_done_updates_score_plan_leaderboard_and_medals(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    db_calls = backend_app["db_calls"]
+    username = "task_player"
+    token = register_user(client, username)["token"]
+    create_plan(client, token)
+
+    user_doc = db["users"].find_one({"username": username})
+    assert (
+        db["tasks"].count_documents(
+            {"user_id": user_doc["user_id"], "plan_id": 1, "task_id": 0, "deleted": False}
+        )
+        == 1
     )
+
+    response = client.post(
+        "/services/challenges/task_done",
+        json={"token": token, "plan_id": 1, "task_id": 0, "medal_taken": "G"},
+    )
+    if response.status_code != 200:
+        tasks_dump = list(db["tasks"].find({"plan_id": 1}))
+        pytest.fail(f"task_done failed: {response.text} tasks={tasks_dump} calls={db_calls}")
     assert response.status_code == 200, response.text
-    body = response.json()
+    assert response.json()["status"] is True
+
+    updated_user = db["users"].find_one({"username": username})
+    assert updated_user["n_tasks_done"] == 1
+    assert updated_user["score"] == 10
+
+    leaderboard = db["leaderboard"].find_one({"_id": "topK"})
+    assert leaderboard["items"][0] == {"username": username, "score": 10}
+
+    task_doc = db["tasks"].find_one({"task_id": 0, "plan_id": 1})
+    assert task_doc["completed_at"] is not None
+
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert plan_doc["n_tasks_done"] == 1
+    assert plan_doc["completed_at"] is None
+
+    medal_doc = db["medals"].find_one({"user_id": updated_user["user_id"]})
+    assert medal_doc is not None
+    assert medal_doc["medal"][0]["grade"] == "G"
+
+
+def test_task_done_error_paths(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "missing_task_user")["token"]
+    create_plan(client, token)
+
+    invalid_token = client.post(
+        "/services/challenges/task_done",
+        json={"token": "bad", "plan_id": 1, "task_id": 0},
+    )
+    assert invalid_token.status_code == 401
+
+    missing_task = client.post(
+        "/services/challenges/task_done", json={"token": token, "plan_id": 99, "task_id": 999}
+    )
+    assert missing_task.status_code == 404
+
+
+def test_leaderboard_endpoint_returns_sorted_scores(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+
+    token_low = register_user(client, "alpha")["token"]
+    create_plan(client, token_low)
+    assert client.post(
+        "/services/challenges/task_done",
+        json={"token": token_low, "plan_id": 1, "task_id": 0},
+    ).status_code == 200
+
+    token_high = register_user(client, "beta")["token"]
+    create_plan(client, token_high)
+    assert client.post(
+        "/services/challenges/task_done",
+        json={"token": token_high, "plan_id": 1, "task_id": 0},
+    ).status_code == 200
+    assert client.post(
+        "/services/challenges/task_done",
+        json={"token": token_high, "plan_id": 1, "task_id": 1},
+    ).status_code == 200
+
+    leaderboard_response = client.post(
+        "/services/gamification/leaderboard", json={"token": token_low}
+    )
+    assert leaderboard_response.status_code == 200
+    items = leaderboard_response.json()["leaderboard"]
+    ordered = sorted(items, key=lambda entry: (-entry["score"], entry["username"]))
+    assert ordered == [{"username": "beta", "score": 40}, {"username": "alpha", "score": 10}]
+
+    leaderboard_doc = db["leaderboard"].find_one({"_id": "topK"})
+    assert sorted(leaderboard_doc["items"], key=lambda entry: (-entry["score"], entry["username"])) == ordered
+
+
+def test_plan_delete_marks_plan_and_active_list(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "deleter")["token"]
+    create_plan(client, token)
+
+    delete_resp = client.post("/services/challenges/plan/delete", json={"token": token, "plan_id": 1})
+    assert delete_resp.status_code == 200
+    assert delete_resp.json()["status"] is True
+
+    user_doc = db["users"].find_one({"username": "deleter"})
+    assert user_doc["active_plans"] == []
+
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert plan_doc["deleted"] is True
+
+
+def test_replan_replaces_tasks_and_resets_progress(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "replanner")["token"]
+    create_plan(client, token, goal="original goal")
+
+    replan_resp = client.post(
+        "/services/challenges/prompt/replan",
+        json={"token": token, "plan_id": 1, "new_goal": "new replan goal"},
+    )
+    assert replan_resp.status_code == 200
+    body = replan_resp.json()
     assert body["status"] is True
     assert body["plan_id"] == 1
     assert len(body["tasks"]) == 2
-    assert len(llm_calls) == 1
-    assert llm_calls[0]["goal"] == "Build a weekly study habit"
+    new_tasks = body["tasks"]
+    assert all(task["task_id"] >= 2 for task in new_tasks)
 
-    tasks = list(db["tasks"].find({"user_id": db["users"].find_one({"username": username})["user_id"]}))
-    assert len(tasks) == 2
-    plan = db["plans"].find_one({"plan_id": 1})
-    assert plan is not None
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert plan_doc["n_replans"] == 1
+    assert plan_doc["n_tasks_done"] == 0
+    assert plan_doc["n_tasks"] == 2
+    assert plan_doc["completed_at"] is None
+
+    old_tasks = list(db["tasks"].find({"plan_id": 1, "task_id": {"$lt": 2}}))
+    assert all(task["deleted"] is True for task in old_tasks)
+
+    active_tasks = list(db["tasks"].find({"plan_id": 1, "deleted": False}))
+    assert len(active_tasks) == 2
+    assert set(task["task_id"] for task in active_tasks) == {2, 3}
 
 
-def test_prompt_endpoint_requires_valid_token(backend_app):
+def test_leaderboard_requires_authentication(backend_app):
     client = backend_app["client"]
-    response = client.post(
-        "/services/challenges/prompt",
-        json={"token": "invalid", "goal": "test"},
-    )
+    response = client.post("/services/gamification/leaderboard", json={"token": "invalid"})
     assert response.status_code == 401

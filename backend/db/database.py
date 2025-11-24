@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, List, Optional
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -100,16 +100,23 @@ def find_one(table_name: str, filters: dict = {}, projection: dict = None):
     except PyMongoError as e:
         raise RuntimeError(e)
 
-def find_many(table_name: str, filters: dict = {}, projection: dict = None) -> list[dict]:
+def find_many(
+    table_name: str, 
+    filters: Optional[Dict[str, Any]] = None, 
+    projection: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     db = connect_to_db()
     collection = db[table_name]
-    assert isinstance(collection, Collection) # assures that db[table_name] is able to call the find method
+    assert isinstance(collection, Collection)  # sanity check
+
+    if filters is None:
+        filters = {}
+
     try:
-        cursor = db[table_name].find(filter = filters, projection = projection)
+        cursor = collection.find(filter=filters, projection=projection)
         return list(cursor)
     except PyMongoError as e:
         raise RuntimeError(e)
-
 
 def find_one_and_update(
     table_name: str,

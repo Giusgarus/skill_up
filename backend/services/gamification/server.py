@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -11,11 +12,11 @@ import backend.utils.session as session
 # ==============================
 #         Load Variables
 # ==============================
-env_path = Path(__file__).resolve().parents[2] / "utils" / ".env" # go back 2 levels of directories (to /backend) and then go to /utils/.env
-load_dotenv(env_path)
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
+with CONFIG_PATH.open("r", encoding="utf-8") as f:
+    _cfg = json.load(f)
 
-ALLOWED_DATA_MEDALS: Set[str] = set(os.getenv("CHALLENGES_ALLOWED_DATA_FIELDS", {"B","S","G","None"}))
-
+ALLOWED_DATA_MEDALS  = _cfg.get("CHALLENGES_ALLOWED_DATA_FIELDS")
 
 # ==============================
 #        Payload Classes

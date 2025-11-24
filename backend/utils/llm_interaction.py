@@ -14,15 +14,31 @@ logger = logging.getLogger("llm_interaction")
 # ==============================
 #         Load Variables
 # ==============================
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "utils" / "env.json"
 with CONFIG_PATH.open("r", encoding="utf-8") as f:
-    _cfg: Dict[str, Any] = json.load(f)
+    _cfg = json.load(f)
 
-LLM_SERVER_URL = _cfg.get("LLM_SERVER_URL", "http://localhost:8001")
+LLM_SERVER_URL = _cfg.get("LLM_SERVER_URL")
 LLM_SERVICE_TOKEN = _cfg.get("LLM_SERVICE_TOKEN")
-LLM_TIMEOUT = int(_cfg.get("LLM_TIMEOUT", 10))
-LLM_MAX_RETRIES = int(_cfg.get("LLM_MAX_RETRIES", 2))
+LLM_TIMEOUT = _cfg.get("LLM_TIMEOUT")
+LLM_MAX_RETRIES = _cfg.get("LLM_MAX_RETRIES")
 
+
+def get_session(retries: int = LLM_MAX_RETRIES, backoff_factor: float = 0.3) -> requests.Session:
+    """Return a requests session configured with retry policy."""
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(429, 502, 503, 504),
+        allowed_methods=frozenset(["POST", "GET", "PUT", "DELETE", "OPTIONS"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 # ==============================
@@ -140,17 +156,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         headers["Authorization"] = f"Bearer {LLM_SERVICE_TOKEN}"
 
     # 5. Create session
-    session = requests.Session()
-    retry = Retry(
-        total=LLM_MAX_RETRIES,
-        read=LLM_MAX_RETRIES,
-        connect=LLM_MAX_RETRIES,
-        backoff_factor=0.3,
-        status_forcelist=(429, 502, 503, 504),
-        allowed_methods=frozenset(["POST", "GET", "PUT", "DELETE", "OPTIONS"])
-    )
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-    session.mount("http://", HTTPAdapter(max_retries=retry))
+    session = get_session(LLM_MAX_RETRIES, backoff_factor=0.3)
 
     # 6. Send request
     try:

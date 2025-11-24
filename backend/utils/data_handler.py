@@ -11,10 +11,13 @@ if _CONFIG_PATH.exists():
 else:
     _cfg = {}
 
-REGISTER_QUESTIONS: list = _cfg.get(
-    "REGISTER_QUESTIONS",
-    [s.replace("\"","") for s in str(os.getenv("REGISTER_QUESTIONS", "")).split(",") if s],
-)
+_ENV_REGISTER_QUESTIONS = [
+    s.replace("\"", "") for s in str(os.getenv("REGISTER_QUESTIONS", "")).split(",") if s
+]
+REGISTER_QUESTIONS: list = (
+    _cfg.get("REGISTER_QUESTIONS")
+    or _cfg.get("GATHERING_QUESTIONS")
+    or _ENV_REGISTER_QUESTIONS)
 REGISTER_INTERESTS_LABELS: list = _cfg.get("REGISTER_INTERESTS_LABELS", [])
 
 
@@ -66,10 +69,10 @@ def get_user_info(user_id: str) -> dict:
         "interests_info": [
             REGISTER_INTERESTS_LABELS[idx]
             for idx in user.get("interests_info") or user.get("selections_info") or []
-        ],
-        "questions_info": [
-            {"question": REGISTER_QUESTIONS[i], "answer": value}
-            for i, value in enumerate(list(user.get("questions_info", [])))
-        ]
-    }
+        ]}
+    questions_info = []
+    for i, value in enumerate(list(user.get("questions_info", []))):
+        question_text = REGISTER_QUESTIONS[i] if i < len(REGISTER_QUESTIONS) else None
+        questions_info.append({"question": question_text, "answer": value})
+    user_info["questions_info"] = questions_info
     return user_info

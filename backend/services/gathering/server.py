@@ -16,15 +16,10 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "utils" / "env.json"
 with CONFIG_PATH.open("r", encoding="utf-8") as f:
     _cfg = json.load(f)
 
-GATHERING_MIN_LEN_ADF = int(_cfg.get("GATHERING_MIN_LEN_ADF", 1))
-GATHERING_MAX_LEN_ADF = int(_cfg.get("GATHERING_MAX_LEN_ADF", 200000))
-GATHERING_INTERESTS_LABELS: list = _cfg.get("GATHERING_INTERESTS_LABELS", [])
-GATHERING_ALLOWED_DATA_FIELDS: Set[str] = set(
-    _cfg.get(
-        "GATHERING_ALLOWED_DATA_FIELDS",
-        ["score", "name", "surname", "height", "weight", "sex", "profile_pic"],
-    )
-)
+GATHERING_MIN_LEN_ADF =  _cfg.get("GATHERING_MIN_LEN_ADF")
+GATHERING_MAX_LEN_ADF = _cfg.get("GATHERING_MAX_LEN_ADF")
+GATHERING_INTERESTS_LABELS = _cfg.get("GATHERING_INTERESTS_LABELS")
+GATHERING_ALLOWED_DATA_FIELDS = _cfg.get("GATHERING_ALLOWED_DATA_FIELDS")
 
 
 # ==============================
