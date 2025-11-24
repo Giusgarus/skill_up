@@ -233,6 +233,8 @@ class _QuestionsBottomSheetState extends State<QuestionsBottomSheet> {
                 child: Text(
                   '$questionIndex/10',
                   style: textTheme.titleLarge?.copyWith(
+                    fontFamily: 'FugazOne',
+                    fontSize: 28,
                     fontWeight: FontWeight.w900,
                     fontStyle: FontStyle.italic,
                     color: Colors.black,
@@ -266,10 +268,11 @@ class _QuestionsBottomSheetState extends State<QuestionsBottomSheet> {
                     Text(
                       isLast ? 'FINISH' : 'NEXT',
                       style: textTheme.titleLarge?.copyWith(
+                        fontFamily: 'FugazOne',
+                        fontSize: 28,
                         fontWeight: FontWeight.w900,
                         fontStyle: FontStyle.italic,
                         color: Colors.black,
-                        letterSpacing: 1.2,
                       ),
                     ),
                     const Spacer(),
