@@ -60,6 +60,15 @@ class UserProfileSyncService {
       await _infoStorage.setFields(username, fieldsToPersist);
     }
 
+    final onboardingAnswers = data['onboarding_answers'];
+    if (onboardingAnswers != null) {
+      await _infoStorage.setField(
+        username,
+        'onboarding_answers',
+        onboardingAnswers.toString(),
+      );
+    }
+
     final profilePic = data['profile_pic'];
     if (profilePic is String && profilePic.isNotEmpty) {
       try {

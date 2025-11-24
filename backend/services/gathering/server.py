@@ -38,6 +38,9 @@ RecordStr = Annotated[
 class User(BaseModel):
     token: str
 
+class UserAttribute(User):
+    attribute: str
+
 class UserBody(User):
     attribute: str
     record: RecordStr
@@ -65,11 +68,13 @@ router = APIRouter(prefix="/services/gathering", tags=["gathering"])
 #            get
 # ==========================
 @router.post("/get", status_code = 200)
-def get_user(payload: UserBody) -> dict:
+def get_user(payload: UserAttribute) -> dict:
     ok, user_id = session.verify_session(payload.token)
-    attribute = payload.attribute
+    attribute = payload.attribute.strip()
     if not ok:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
+    if attribute not in GATHERING_ALLOWED_DATA_FIELDS:
+        raise HTTPException(status_code = 401, detail = "Unsupported attribute")
     user = db.find_one(
         table_name="users",
         filters = {"user_id": user_id},
@@ -103,7 +108,7 @@ def update_user(payload: UserBody):
         up_status = db.update_one(
             table_name="users",
             keys_dict={"user_id" : user_id},
-            values_dict={"$set": {payload.attribute: payload.record}}
+            values_dict={"$set": {attribute: payload.record}}
         )
     except PyMongoError:
         raise HTTPException(status_code = 402, detail = "Database error")

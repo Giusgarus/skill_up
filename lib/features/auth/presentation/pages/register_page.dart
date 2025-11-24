@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,8 @@ import 'package:skill_up/features/home/presentation/pages/home_page.dart';
 import 'package:skill_up/shared/widgets/likert_circle.dart';
 import 'package:skill_up/features/profile/data/user_profile_info_storage.dart';
 import 'package:skill_up/features/profile/data/profile_api.dart';
+import 'package:skill_up/features/home/data/medal_history_repository.dart';
+import 'package:skill_up/features/home/data/user_stats_repository.dart';
 import '../../data/services/gathering_api.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -184,6 +187,10 @@ class _RegisterPageState extends State<RegisterPage> {
         final session = result.session!;
         try {
           await _sessionStorage.saveSession(session);
+          // reset local stats/medals for new user
+          MedalHistoryRepository.instance.clearForUser(session.username);
+          UserStatsRepository.instance.resetStats();
+          MedalHistoryRepository.instance.setActiveUser(session.username);
         } catch (storageError, storageStackTrace) {
           if (kDebugMode) {
             debugPrint('Failed to persist session: $storageError');
@@ -339,6 +346,20 @@ class _RegisterPageState extends State<RegisterPage> {
       await _gatheringApi.sendQuestions(
         token: session.token,
         answers: answersList,
+      );
+      // persist onboarding answers locally and on profile backend
+      final encoded = jsonEncode(
+        onboardingResult.answers.map((key, value) => MapEntry(key.toString(), value)),
+      );
+      await _profileInfoStorage.setField(
+        session.username,
+        'onboarding_answers',
+        encoded,
+      );
+      await _profileApi.updateField(
+        token: session.token,
+        field: 'onboarding_answers',
+        value: encoded,
       );
     }
   }

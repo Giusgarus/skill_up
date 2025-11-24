@@ -1,100 +1,112 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:skill_up/features/home/data/task_api.dart';
+import 'package:skill_up/features/home/domain/medal_utils.dart';
+
+class PlanOverviewArgs {
+  const PlanOverviewArgs({
+    required this.planId,
+    required this.token,
+    required this.tasks,
+    this.prompt,
+    this.deleteOnly = false,
+  });
+
+  final int planId;
+  final String token;
+  final List<RemoteTask> tasks;
+  final String? prompt;
+  final bool deleteOnly;
+}
+
+enum PlanDecision { accepted, declined }
 
 class PlanOverviewPage extends StatefulWidget {
-  const PlanOverviewPage({super.key});
+  const PlanOverviewPage({super.key, required this.args});
 
   static const route = '/planOverview';
+
+  final PlanOverviewArgs args;
 
   @override
   State<PlanOverviewPage> createState() => _PlanOverviewPageState();
 }
 
 class _PlanOverviewPageState extends State<PlanOverviewPage> {
-  // Placeholder data for the workout plan
-  final List<Map<String, dynamic>> _planData = [
-    {
-      'weekTitle': 'Week 1: Foundation (Very Light)',
-      'days': [
-        {
-          'date': 'Tuesday, 21 October 2025',
-          'category': 'Upper & Core',
-          'exercises': [
-            'Knee Push-ups: 2 sets of 8 reps',
-            'Plank: 2 sets, hold for 20 seconds',
-            'Crunches: 2 sets of 15 reps',
-          ],
-        },
-        {
-          'date': 'Thursday, 23 October 2025',
-          'category': 'Lower & Cardio',
-          'exercises': [
-            'Bodyweight Squats: 2 sets of 12 reps',
-            'Alternating Lunges: 2 sets of 8 reps per leg',
-            'Glute Bridges: 2 sets of 15 reps',
-          ],
-        },
-        {
-          'date': 'Saturday, 25 October 2025',
-          'category': 'Upper & Core',
-          'exercises': [
-            'Knee Push-ups: 2 sets of 8 reps',
-            'Plank: 2 sets, hold for 20 seconds',
-            'Crunches: 2 sets of 15 reps',
-          ],
-        },
-        {
-          'date': 'Sunday, 26 October 2025',
-          'category': 'Lower & Cardio',
-          'exercises': [
-            'Bodyweight Squats: 2 sets of 12 reps',
-            'Alternating Lunges: 2 sets of 8 reps per leg',
-            'Glute Bridges: 2 sets of 15 reps',
-          ],
-        },
-      ],
-    },
-    {
-      'weekTitle': 'Week 2: Building Base',
-      'days': [
-        {
-          'date': 'Tuesday, 28 October 2025',
-          'category': 'Upper & Core',
-          'exercises': [
-            'Push-ups (or Knee Push-ups): 3 sets of 8 reps',
-            'Plank: 3 sets, hold for 30 seconds',
-            'Crunches: 3 sets of 15 reps',
-            'Bird-Dog: 2 sets of 10 reps per side',
-          ],
-        },
-        {
-          'date': 'Thursday, 30 October 2025',
-          'category': 'Lower & Cardio',
-          'exercises': [
-            'Bodyweight Squats: 3 sets of 12 reps',
-            'Alternating Lunges: 3 sets of 10 reps per leg',
-            'Glute Bridges: 3 sets of 15 reps',
-            'Calf Raises: 3 sets of 15 reps', // Example for more data
-          ],
-        },
-        {
-          'date': 'Saturday, 1 November 2025',
-          'category': 'Upper & Core',
-          'exercises': [
-            'Push-ups (or Knee Push-ups): 3 sets of 8 reps',
-            'Plank: 3 sets, hold for 30 seconds',
-            'Crunches: 3 sets of 15 reps',
-            'Superman: 2 sets of 12 reps', // Example for more data
-          ],
-        },
-      ],
-    },
-    // Add more weeks/days as needed
-  ];
+  final TaskApi _taskApi = TaskApi();
+  bool _processing = false;
+  String? _error;
+
+  late final Map<DateTime, List<RemoteTask>> _tasksByDay;
+  late final List<DateTime> _sortedDays;
+
+  @override
+  void initState() {
+    super.initState();
+    _tasksByDay = _groupTasks(widget.args.tasks);
+    _sortedDays = _tasksByDay.keys.toList()..sort();
+  }
+
+  @override
+  void dispose() {
+    _taskApi.close();
+    super.dispose();
+  }
+
+  Map<DateTime, List<RemoteTask>> _groupTasks(List<RemoteTask> tasks) {
+    final grouped = <DateTime, List<RemoteTask>>{};
+    for (final task in tasks) {
+      final day = dateOnly(task.deadline);
+      grouped.putIfAbsent(day, () => <RemoteTask>[]).add(task);
+    }
+    for (final entry in grouped.entries) {
+      entry.value.sort((a, b) => a.deadline.compareTo(b.deadline));
+    }
+    return grouped;
+  }
+
+  Future<void> _handleAccept() async {
+    if (!mounted) return;
+    Navigator.of(context).pop<PlanDecision>(PlanDecision.accepted);
+  }
+
+  Future<void> _handleDecline() async {
+    if (_processing) return;
+    setState(() {
+      _processing = true;
+      _error = null;
+    });
+    final ok = await _taskApi.deletePlan(
+      token: widget.args.token,
+      planId: widget.args.planId,
+    );
+    if (!mounted) return;
+    setState(() => _processing = false);
+    if (!ok) {
+      setState(() => _error = 'Unable to discard this plan. Please retry.');
+      return;
+    }
+    Navigator.of(context).pop<PlanDecision>(PlanDecision.declined);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final dateFmt = DateFormat('EEE, dd MMM');
+    final tasksCount = widget.args.tasks.length;
+    final start = _sortedDays.isNotEmpty ? _sortedDays.first : null;
+    final end = _sortedDays.isNotEmpty ? _sortedDays.last : null;
+    final span = start != null && end != null
+        ? '${dateFmt.format(start)} → ${dateFmt.format(end)}'
+        : 'Upcoming days';
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       backgroundColor: Colors.transparent, // Set to transparent to show the gradient
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: _BackPill(onTap: () => Navigator.of(context).maybePop()),
+      ),
       body: Stack(
         children: [
           const _GradientBackground(), // Custom gradient background
@@ -107,21 +119,16 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const _Header(),
+                        _Header(planId: widget.args.planId),
                         const SizedBox(height: 28),
-                        const _DayCircles(),
-                        const SizedBox(height: 24),
-                        Text(
-                          'Total duration: 4 weeks',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                          ),
+                        _SummaryCard(
+                          totalTasks: tasksCount,
+                          timeSpan: span,
+                          prompt: widget.args.prompt,
                         ),
-                        const SizedBox(height: 24),
-                        // Render the workout plan sections inside a white box
+                        const SizedBox(height: 18),
                         Container(
-                          margin: const EdgeInsets.only(bottom: 24.0), // Margin from bottom buttons
+                          margin: const EdgeInsets.only(bottom: 24.0),
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             color: Colors.white,
@@ -134,18 +141,29 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
                               ),
                             ],
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: _planData.map((weekData) {
-                              return _WeekSection(weekData: weekData);
-                            }).toList(),
-                          ),
+                          child: _TaskTimeline(tasksByDay: _tasksByDay),
                         ),
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              _error!,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Colors.redAccent,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
                 ),
-                _ActionButtons(), // Action buttons at the bottom
+                _ActionButtons(
+                  loading: _processing,
+                  onAccept: widget.args.deleteOnly ? null : _handleAccept,
+                  onDecline: _handleDecline,
+                  deleteOnly: widget.args.deleteOnly,
+                ),
               ],
             ),
           ),
@@ -180,8 +198,58 @@ class _GradientBackground extends StatelessWidget {
   }
 }
 
+class _BackPill extends StatelessWidget {
+  const _BackPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: const BorderRadius.horizontal(
+          right: Radius.circular(28),
+        ),
+        child: Ink(
+          width: 72,
+          height: 56,
+          decoration: BoxDecoration(
+            color: const Color(0xFFB3B3B3),
+            borderRadius: const BorderRadius.horizontal(
+              right: Radius.circular(28),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 14),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Image.asset(
+                'assets/icons/back.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({required this.planId});
+
+  final int planId;
 
   @override
   Widget build(BuildContext context) {
@@ -191,127 +259,223 @@ class _Header extends StatelessWidget {
       letterSpacing: 1.2,
     );
     return Center(
-      child: Text(
-        'OVERVIEW OF YOUR PLAN',
-        textAlign: TextAlign.center,
-        style: titleStyle,
+      child: Column(
+        children: [
+          Text(
+            'OVERVIEW OF YOUR PLAN',
+            textAlign: TextAlign.center,
+            style: titleStyle,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Plan #$planId',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _DayCircles extends StatelessWidget {
-  const _DayCircles();
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.totalTasks,
+    required this.timeSpan,
+    this.prompt,
+  });
 
-  final List<String> days = const ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-  // Example: 'Mo' and 'Fr' are active (green), others are inactive (grey/white)
-  final List<bool> activeDays = const [true, false, true, false, true, false, true];
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: List.generate(days.length, (index) {
-        return Column(
-          children: [
-            Text(
-              days[index],
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: activeDays[index] ? const Color(0xFF6CC54B) : Colors.white.withOpacity(0.5),
-                border: Border.all(
-                  color: activeDays[index] ? Colors.transparent : Colors.white.withOpacity(0.8),
-                  width: activeDays[index] ? 0 : 2,
-                ),
-              ),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-}
-
-class _WeekSection extends StatelessWidget {
-  const _WeekSection({required this.weekData});
-
-  final Map<String, dynamic> weekData;
+  final int totalTasks;
+  final String timeSpan;
+  final String? prompt;
 
   @override
   Widget build(BuildContext context) {
-    final weekTitleStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-      fontWeight: FontWeight.w700,
-      color: Colors.black, // Changed to black
-      decoration: TextDecoration.underline,
-      decorationColor: Colors.black, // Changed to black
-      decorationThickness: 2,
-      height: 1.5,
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24.0),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.4)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            weekData['weekTitle'],
-            style: weekTitleStyle,
+            '$totalTasks tasks scheduled',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
           ),
-          const SizedBox(height: 16),
-          ..._buildDayDetails(context, weekData['days']),
+          const SizedBox(height: 6),
+          Text(
+            timeSpan,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withOpacity(0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          if (prompt != null && prompt!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Goal',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              prompt!,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskTimeline extends StatelessWidget {
+  const _TaskTimeline({required this.tasksByDay});
+
+  final Map<DateTime, List<RemoteTask>> tasksByDay;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFmt = DateFormat('EEE, dd MMM');
+    final entries = tasksByDay.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: entries.map((entry) {
+        final date = entry.key;
+        final tasks = entry.value;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                dateFmt.format(date),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              ...tasks.map(
+                (task) => _TaskRow(task: task),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _TaskRow extends StatelessWidget {
+  const _TaskRow({required this.task});
+
+  final RemoteTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.black.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            task.title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            task.description,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.black87,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _Tag(
+                label: 'Difficulty ${task.difficulty}',
+                color: _difficultyColor(task.difficulty),
+              ),
+              const SizedBox(width: 8),
+              _Tag(
+                label: '${task.score} pts',
+                color: Colors.blueGrey.shade200,
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  List<Widget> _buildDayDetails(BuildContext context, List<dynamic> days) {
-    return days.map<Widget>((dayData) {
-      final dayHeaderStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        color: Colors.black, // Changed to black
-      );
-      final exerciseTextStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
-        color: Colors.black, // Changed to black
-        height: 1.4,
-      );
+  Color _difficultyColor(int difficulty) {
+    if (difficulty >= 5) return const Color(0xFFFF9A9E);
+    if (difficulty >= 3) return const Color(0xFFF1D16A);
+    return const Color(0xFF9BE7A1);
+  }
+}
 
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${dayData['date']} (${dayData['category']}):',
-              style: dayHeaderStyle,
+class _Tag extends StatelessWidget {
+  const _Tag({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
             ),
-            const SizedBox(height: 8),
-            ...dayData['exercises'].map<Widget>((exercise) {
-              return Padding(
-                padding: const EdgeInsets.only(left: 16.0, bottom: 4.0),
-                child: Text(
-                  '• $exercise',
-                  style: exerciseTextStyle,
-                ),
-              );
-            }).toList(),
-          ],
-        ),
-      );
-    }).toList();
+      ),
+    );
   }
 }
 
 class _ActionButtons extends StatelessWidget {
-  const _ActionButtons();
+  const _ActionButtons({
+    required this.onDecline,
+    required this.loading,
+    this.onAccept,
+    this.deleteOnly = false,
+  });
+
+  final VoidCallback? onAccept;
+  final VoidCallback onDecline;
+  final bool loading;
+  final bool deleteOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -323,24 +487,26 @@ class _ActionButtons extends StatelessWidget {
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _ActionButton(
-            label: 'REPLAN',
-            // Sampled colors from the image for REPLAN button
-            gradientColors: const [Color(0xFFFC5B6B), Color(0xFFF89052)],
-            onPressed: () {
-              print('REPLAN tapped');
-            },
-          ),
-          _ActionButton(
-            label: 'ACCEPT',
-            // Sampled colors from the image for ACCEPT button
-            gradientColors: const [Color(0xFF75E966), Color(0xFFC7EF75)],
-            onPressed: () {
-              print('ACCEPT tapped');
-            },
-          ),
-        ],
+        children: deleteOnly
+            ? [
+                _ActionButton(
+                  label: 'REMOVE',
+                  gradientColors: const [Color(0xFFFC5B6B), Color(0xFFF89052)],
+                  onPressed: loading ? null : onDecline,
+                ),
+              ]
+            : [
+                _ActionButton(
+                  label: 'DECLINE',
+                  gradientColors: const [Color(0xFFFC5B6B), Color(0xFFF89052)],
+                  onPressed: loading ? null : onDecline,
+                ),
+                _ActionButton(
+                  label: 'ACCEPT',
+                  gradientColors: const [Color(0xFF75E966), Color(0xFFC7EF75)],
+                  onPressed: loading ? null : onAccept,
+                ),
+              ],
       ),
     );
   }
@@ -355,7 +521,7 @@ class _ActionButton extends StatelessWidget {
 
   final String label;
   final List<Color> gradientColors;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {

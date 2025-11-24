@@ -13,6 +13,9 @@ import '../../data/user_profile_info_storage.dart';
 import '../../data/user_profile_storage.dart';
 import '../../domain/user_profile_fields.dart';
 
+import 'package:skill_up/features/home/data/task_api.dart';
+import 'package:skill_up/features/home/presentation/pages/plan_overview.dart';
+
 import 'package:skill_up/shared/widgets/questions_bottom_sheet.dart';
 
 class UserInfoPage extends StatefulWidget {
@@ -29,6 +32,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
   final UserProfileInfoStorage _infoStorage = UserProfileInfoStorage.instance;
   final AuthSessionStorage _authStorage = AuthSessionStorage();
   final ProfileApi _profileApi = ProfileApi();
+  final TaskApi _taskApi = TaskApi();
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, TextEditingController> _controllers =
@@ -38,6 +42,9 @@ class _UserInfoPageState extends State<UserInfoPage> {
 
   File? _profileImage;
   bool _isProcessing = false;
+  bool _loadingPlans = false;
+  String? _plansError;
+  List<RemotePlan> _activePlans = const [];
 
   // tipo dinamico: ha almeno .username e .token
   dynamic _session;
@@ -65,6 +72,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
       controller.dispose();
     }
     _profileApi.close();
+    _taskApi.close();
     super.dispose();
   }
 
@@ -73,7 +81,35 @@ class _UserInfoPageState extends State<UserInfoPage> {
     await Future.wait([
       _loadProfileImage(),
       _loadProfileFields(),
+      _loadActivePlans(),
     ]);
+  }
+
+  Future<void> _loadActivePlans() async {
+    final session = await _ensureSession();
+    if (session == null) {
+      if (!mounted) return;
+      setState(() {
+        _activePlans = const [];
+        _plansError = 'No active session.';
+        _loadingPlans = false;
+      });
+      return;
+    }
+    setState(() {
+      _loadingPlans = true;
+      _plansError = null;
+    });
+    final result = await _taskApi.fetchActivePlansDetailed(token: session.token);
+    if (!mounted) return;
+    setState(() {
+      _loadingPlans = false;
+      if (result.isSuccess) {
+        _activePlans = result.plans;
+      } else {
+        _plansError = result.errorMessage;
+      }
+    });
   }
 
   Future<dynamic> _ensureSession() async {
@@ -656,54 +692,14 @@ class _UserInfoPageState extends State<UserInfoPage> {
                           ),
                         ),
 
-                        const SizedBox(height: 26),
+                        const SizedBox(height: 18),
 
-                        _HabitPlanButton(
-                          title: 'DRINK MORE',
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                const _HabitPlanPlaceholderPage(),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        _HabitPlanButton(
-                          title: 'WALKING',
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                const _HabitPlanPlaceholderPage(),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        _HabitPlanButton(
-                          title: 'STUDYING',
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                const _HabitPlanPlaceholderPage(),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        _HabitPlanButton(
-                          title: 'EXERCISE',
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                const _HabitPlanPlaceholderPage(),
-                              ),
-                            );
-                          },
+                        _ActivePlansSection(
+                          loading: _loadingPlans,
+                          error: _plansError,
+                          plans: _activePlans,
+                          sessionToken: _session?.token,
+                          onRefresh: _loadActivePlans,
                         ),
 
                         const SizedBox(height: 40),
@@ -769,6 +765,180 @@ class _SidePillBackButton extends StatelessWidget {
     );
   }
 }
+
+class _ActivePlansSection extends StatelessWidget {
+  const _ActivePlansSection({
+    required this.loading,
+    required this.error,
+    required this.plans,
+    required this.onRefresh,
+    required this.sessionToken,
+  });
+
+  final bool loading;
+  final String? error;
+  final List<RemotePlan> plans;
+  final VoidCallback onRefresh;
+  final String? sessionToken;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Your active plans',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: Colors.black,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: loading ? null : onRefresh,
+              color: Colors.black,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (error != null)
+          Text(
+            error!,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.redAccent,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        else if (plans.isEmpty)
+          Text(
+            'No active plans yet.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.black,
+            ),
+          )
+        else
+          Column(
+            children: plans
+                .map(
+                  (plan) => _PlanCard(
+                    plan: plan,
+                    sessionToken: sessionToken,
+                    onRemove: onRefresh,
+                  ),
+                )
+                .toList(),
+          ),
+      ],
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({required this.plan, required this.sessionToken, required this.onRemove});
+
+  final RemotePlan plan;
+  final String? sessionToken;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = plan.tasks.length;
+    final completed = plan.tasks.where((t) => t.isCompleted).length;
+    final progress = total == 0 ? 0.0 : completed / total;
+    final displayTitle = (plan.prompt?.trim().isNotEmpty ?? false)
+        ? plan.prompt!.trim()
+        : (plan.tasks.isNotEmpty ? plan.tasks.first.title : 'Plan #${plan.planId}');
+
+    return GestureDetector(
+      onTap: sessionToken == null
+          ? null
+          : () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  settings: const RouteSettings(name: PlanOverviewPage.route),
+                  builder: (_) => PlanOverviewPage(
+                    args: PlanOverviewArgs(
+                      planId: plan.planId,
+                      token: sessionToken!,
+                      tasks: plan.tasks,
+                      prompt: plan.prompt,
+                      deleteOnly: true,
+                    ),
+                  ),
+                ),
+              );
+              onRemove();
+            },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  displayTitle,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$completed / $total tasks',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 10,
+                backgroundColor: Colors.grey.shade300,
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF9A9E)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
 // =======================
 //  STILI PILL
@@ -951,7 +1121,7 @@ class _HabitPlanButton extends StatelessWidget {
   });
 
   final String title;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

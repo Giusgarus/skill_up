@@ -9,6 +9,7 @@ const Map<String, String> _frontendToBackendProfileFields = {
   'day_routine': 'day_routine',
   'organized': 'organized',
   'focus': 'focus',
+  'onboarding_answers': 'onboarding_answers',
 };
 
 final Map<String, String> _backendToFrontendProfileFields = {

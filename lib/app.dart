@@ -28,7 +28,15 @@ class SkillUpApp extends StatelessWidget {
         HomePage.route: (_) => const HomePage(),
         UserInfoPage.route: (_) => const UserInfoPage(),
         SettingsPage.route: (_) => const SettingsPage(),
-        PlanOverviewPage.route: (_) => const PlanOverviewPage(),
+        PlanOverviewPage.route: (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          if (args is PlanOverviewArgs) {
+            return PlanOverviewPage(args: args);
+          }
+          return const Scaffold(
+            body: Center(child: Text('Missing plan details')),
+          );
+        },
         MonthlyMedalsPage.route: (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           final initial = args is DateTime ? args : DateTime.now();

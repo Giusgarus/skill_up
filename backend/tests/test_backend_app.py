@@ -359,6 +359,31 @@ def test_update_user_rejects_duplicate_username(backend_app):
     assert db["users"].find_one({"username": "second_user"}) is not None
 
 
+def test_get_user_allows_only_supported_attributes(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "getter")["token"]
+
+    set_response = client.post(
+        "/services/challenges/set",
+        json={"token": token, "attribute": "name", "record": "Ada Lovelace"},
+    )
+    assert set_response.status_code == 200
+
+    valid_get = client.post(
+        "/services/gathering/get",
+        json={"token": token, "attribute": "name "},  # trailing space should be stripped
+    )
+    assert valid_get.status_code == 200
+    assert valid_get.json()["name"] == "Ada Lovelace"
+
+    unsupported = client.post(
+        "/services/gathering/get",
+        json={"token": token, "attribute": "password_hash"},
+    )
+    assert unsupported.status_code == 401
+    assert unsupported.json()["detail"] == "Unsupported attribute"
+
+
 def test_prompt_endpoint_creates_plan_and_tasks(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]

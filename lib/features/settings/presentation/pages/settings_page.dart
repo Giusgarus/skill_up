@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:skill_up/features/auth/data/services/auth_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
+import 'package:skill_up/features/home/data/task_api.dart';
 
 /// Simple settings page with quick-access actions.
 class SettingsPage extends StatefulWidget {
@@ -16,12 +18,50 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _authApi = AuthApi();
   final _sessionStorage = AuthSessionStorage();
+  final TaskApi _taskApi = TaskApi();
   bool _loggingOut = false;
+  bool _loadingPlans = false;
+  String? _plansError;
+  List<ActivePlanSummary> _plans = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlans();
+  }
 
   @override
   void dispose() {
     _authApi.close();
+    _taskApi.close();
     super.dispose();
+  }
+
+  Future<void> _loadPlans() async {
+    setState(() {
+      _loadingPlans = true;
+      _plansError = null;
+    });
+    final session = await _sessionStorage.readSession();
+    if (session == null) {
+      if (mounted) {
+        setState(() {
+          _loadingPlans = false;
+          _plansError = 'No active session.';
+        });
+      }
+      return;
+    }
+    final result = await _taskApi.fetchActivePlans(token: session.token);
+    if (!mounted) return;
+    setState(() {
+      _loadingPlans = false;
+      if (result.isSuccess) {
+        _plans = result.plans;
+      } else {
+        _plansError = result.errorMessage;
+      }
+    });
   }
 
   Future<void> _handleLogout() async {

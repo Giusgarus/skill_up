@@ -19,6 +19,13 @@ class MedalHistoryRepository {
     _medalsByUser.putIfAbsent(username, () => <DateTime, MedalType>{});
   }
 
+  void clearForUser(String username) {
+    _medalsByUser.remove(username);
+    if (_activeUser == username) {
+      _activeUser = null;
+    }
+  }
+
   Map<DateTime, MedalType> _ensureMap() {
     final user = _activeUser ?? '__default__';
     return _medalsByUser.putIfAbsent(user, () => <DateTime, MedalType>{});

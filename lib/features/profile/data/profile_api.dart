@@ -15,6 +15,24 @@ class ProfileApi {
   final String baseUrl;
 
   Uri get _updateUri => Uri.parse(baseUrl).resolve('/services/challenges/set');
+  Uri get _getAttributeUri =>
+      Uri.parse(baseUrl).resolve('/services/gathering/get');
+
+  static const List<String> _attributesToFetch = <String>[
+    'username',
+    'name',
+    'surname',
+    'sex',
+    'weight',
+    'height',
+    'about',
+    'day_routine',
+    'organized',
+    'focus',
+    'age',
+    'profile_pic',
+    'onboarding_answers',
+  ];
 
   Future<ProfileApiResult> uploadProfilePicture({
     required String token,
@@ -56,10 +74,35 @@ class ProfileApi {
   void close() => _client.close();
 
   Future<ProfileDataResult> fetchAllData({required String token}) async {
-    // The FastAPI backend currently exposes mutation endpoints only.
-    return const ProfileDataResult.error(
-      'Remote profile sync is not available yet.',
-    );
+    final Map<String, dynamic> collected = <String, dynamic>{};
+    String? lastError;
+
+    for (final attribute in _attributesToFetch) {
+      final result = await _fetchAttribute(
+        token: token,
+        attribute: attribute,
+      );
+
+      if (result.isAuthError) {
+        return ProfileDataResult.error(
+          result.message ?? 'Invalid session token.',
+        );
+      }
+
+      if (result.success) {
+        collected[attribute] = result.value;
+      } else if (result.message != null) {
+        lastError = result.message;
+      }
+    }
+
+    if (collected.isEmpty) {
+      return ProfileDataResult.error(
+        lastError ?? 'Unable to fetch profile data.',
+      );
+    }
+
+    return ProfileDataResult.success(data: collected);
   }
 
   Future<ProfileApiResult> _postUpdate({
@@ -109,6 +152,84 @@ class ProfileApi {
       );
     }
   }
+
+  Future<_AttributeResult> _fetchAttribute({
+    required String token,
+    required String attribute,
+  }) async {
+    final payload = jsonEncode({
+      'token': token,
+      'attribute': attribute,
+    });
+    try {
+      final response = await _client.post(
+        _getAttributeUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body =
+            response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body) as Map<String, dynamic>;
+        return _AttributeResult.success(body[attribute]);
+      }
+      if (response.statusCode == 401) {
+        return const _AttributeResult.failure(
+          'Unauthorized profile request.',
+          isAuthError: true,
+        );
+      }
+      String? message;
+      if (response.body.isNotEmpty) {
+        try {
+          final Map<String, dynamic> parsed =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          message =
+              (parsed['detail'] ?? parsed['error'] ?? parsed['message']) as String?;
+        } catch (_) {
+          // ignore malformed body
+        }
+      }
+      return _AttributeResult.failure(
+        message ?? 'Failed to load $attribute (${response.statusCode}).',
+      );
+    } on SocketException catch (_) {
+      return const _AttributeResult.failure('No internet connection.');
+    } on HttpException catch (_) {
+      return const _AttributeResult.failure('Unable to reach the server.');
+    } on FormatException catch (_) {
+      return const _AttributeResult.failure('Malformed server response.');
+    } catch (error, stackTrace) {
+      return _AttributeResult.failure(
+        'Unexpected error.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+}
+
+class _AttributeResult {
+  const _AttributeResult.success(this.value)
+    : success = true,
+      isAuthError = false,
+      message = null,
+      error = null,
+      stackTrace = null;
+
+  const _AttributeResult.failure(
+    this.message, {
+    this.isAuthError = false,
+    this.error,
+    this.stackTrace,
+  })  : success = false,
+        value = null;
+
+  final bool success;
+  final bool isAuthError;
+  final dynamic value;
+  final String? message;
+  final Object? error;
+  final StackTrace? stackTrace;
 }
 
 class ProfileApiResult {

@@ -9,6 +9,7 @@ import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
 import 'package:skill_up/features/home/data/daily_task_completion_storage.dart';
 import 'package:skill_up/features/home/data/medal_history_repository.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
+import 'package:skill_up/features/home/data/user_stats_repository.dart';
 import 'package:skill_up/features/home/domain/calendar_labels.dart';
 import 'package:skill_up/features/home/domain/medal_utils.dart';
 import 'package:skill_up/features/home/presentation/pages/monthly_medals_page.dart';
@@ -23,20 +24,24 @@ import 'plan_overview.dart';
 class DailyTask {
   const DailyTask({
     required this.id,
+    required this.remoteTaskId,
     required this.title,
     required this.description,
     required this.cardColor,
     required this.planId,
     required this.deadline,
+    required this.score,
     this.textColor = Colors.black,
     this.isCompleted = false,
   });
 
   final String id;
+  final int remoteTaskId;
   final String title;
   final String description;
   final int planId;
   final DateTime deadline;
+  final int score;
   final Color cardColor;
   final Color textColor;
   final bool isCompleted;
@@ -44,11 +49,13 @@ class DailyTask {
   DailyTask copyWith({bool? isCompleted}) {
     return DailyTask(
       id: id,
+      remoteTaskId: remoteTaskId,
       title: title,
       description: description,
       planId: planId,
       deadline: deadline,
       cardColor: cardColor,
+      score: score,
       textColor: textColor,
       isCompleted: isCompleted ?? this.isCompleted,
     );
@@ -148,9 +155,12 @@ class _HomePageState extends State<HomePage> {
       _setPlanData(result.tasks, result.planId!);
     } else {
       setState(() {
+        _activePlanId = null;
         _planError = result.errorMessage;
         _tasks = const [];
         _tasksByDay.clear();
+        _taskStatusesByDay.clear();
+        _completedTasksByDay = _seedMonthlyCompletedTasks();
       });
       if (_planError != null &&
           !_planError!.toLowerCase().contains('no active plan')) {
@@ -171,12 +181,14 @@ class _HomePageState extends State<HomePage> {
     for (final task in remoteTasks) {
       final day = dateOnly(task.deadline);
       final entry = DailyTask(
-        id: task.taskId.toString(),
+        id: '${task.planId}-${task.taskId}',
+        remoteTaskId: task.taskId,
         title: task.title,
         description: task.description,
-        planId: planId,
+        planId: task.planId,
         deadline: task.deadline,
         cardColor: _colorForDifficulty(task.difficulty),
+        score: task.score,
         isCompleted: task.isCompleted,
       );
       byDay.putIfAbsent(day, () => <DailyTask>[]).add(entry);
@@ -195,7 +207,8 @@ class _HomePageState extends State<HomePage> {
     });
 
     setState(() {
-      _activePlanId = planId;
+      // if multiple plans are active, mark as generic "has plan"
+      _activePlanId = remoteTasks.isNotEmpty ? remoteTasks.first.planId : planId;
       _tasksByDay
         ..clear()
         ..addAll(byDay);
@@ -203,7 +216,7 @@ class _HomePageState extends State<HomePage> {
         ..clear()
         ..addAll(statusByDay);
       _completedTasksByDay = {
-        ..._completedTasksByDay,
+        ..._seedMonthlyCompletedTasks(),
         ...completedByDay,
       };
       _ensureWeekCoverage();
@@ -649,7 +662,18 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     final original = tasksForDay[idx];
-    final toggled = original.copyWith(isCompleted: !original.isCompleted);
+    if (original.isCompleted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('This task is already completed.'),
+            duration: Duration(milliseconds: 1400),
+          ),
+        );
+      return;
+    }
+    final toggled = original.copyWith(isCompleted: true);
     setState(() {
       final updatedDay = List<DailyTask>.from(tasksForDay);
       updatedDay[idx] = toggled;
@@ -703,14 +727,14 @@ class _HomePageState extends State<HomePage> {
       final result = await _taskApi.markTaskDone(
         token: session.token,
         planId: task.planId,
-        taskId: int.tryParse(task.id) ?? 0,
-        medalTaken: _medalCodeFor(
-          medalForProgress(
-            completed: _completedForDay(day),
-            total: _totalTasksForDay(day),
-          ),
+        taskId: task.remoteTaskId,
+      medalTaken: _medalCodeFor(
+        medalForProgress(
+          completed: _completedForDay(day),
+          total: _totalTasksForDay(day),
         ),
-      );
+      ),
+    );
       if (!result.isSuccess && mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -722,6 +746,12 @@ class _HomePageState extends State<HomePage> {
               duration: const Duration(milliseconds: 1400),
             ),
           );
+      } else {
+        // Update XP/level locally based on task score
+        UserStatsRepository.instance.updateXp(task.score);
+        if (result.newScore != null) {
+          UserStatsRepository.instance.syncFromScore(result.newScore!);
+        }
       }
     } catch (_) {
       if (!mounted) {
@@ -753,44 +783,166 @@ class _HomePageState extends State<HomePage> {
       _isBuildingPlan = true;
       _planError = null;
     });
+    PlanResult? creationResult;
     try {
-      final result = await _taskApi.createPlan(
+      creationResult = await _taskApi.createPlan(
         token: session.token,
         goal: goal,
       );
-
-      if (!mounted) return;
-      setState(() {
-        _isBuildingPlan = false;
-      });
-
-      if (result.isSuccess && result.planId != null) {
-        _setPlanData(result.tasks, result.planId!);
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('Plan created successfully.')),
-          );
-      } else {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                result.errorMessage ?? 'Unable to build the plan right now.',
-              ),
-            ),
-          );
-      }
     } catch (_) {
+      creationResult = null;
+    }
+
+    // Always try to recover the freshest plan from the server
+    final freshest = await _waitForPlan(session.token);
+    _debugPlanResult('createPlan response', creationResult);
+    _debugPlanResult('freshest active plan', freshest);
+    final planToShow = _pickBestPlan(creationResult, freshest);
+
+    if (!mounted) return;
+    setState(() {
+      _isBuildingPlan = false;
+    });
+
+    if (planToShow != null && planToShow.isSuccess && planToShow.planId != null) {
+      _setPlanData(planToShow.tasks, planToShow.planId!);
+      final args = PlanOverviewArgs(
+        planId: planToShow.planId!,
+        token: session.token,
+        tasks: planToShow.tasks,
+        prompt: planToShow.prompt ?? goal,
+      );
+      final decision = await Navigator.of(context).push<PlanDecision>(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: PlanOverviewPage.route),
+          builder: (_) => PlanOverviewPage(args: args),
+        ),
+      );
       if (!mounted) return;
-      setState(() {
-        _isBuildingPlan = false;
-      });
+      if (decision == PlanDecision.declined) {
+        await _loadActivePlan();
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Plan discarded.')),
+        );
+        return;
+      }
+
+      // Refresh with all active plans/tasks after accepting
+      await _loadActivePlan();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Plan created successfully.')),
+        );
+    } else {
+      final message = creationResult?.errorMessage ??
+          freshest.errorMessage ??
+          'Unable to build the plan right now.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _createPresetPlan(String presetKey) async {
+    final session = await _ensureSession();
+    if (session == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Unable to build the plan right now.'),
+          content: Text('No active session found. Please log in again.'),
         ),
+      );
+      return;
+    }
+    setState(() {
+      _isBuildingPlan = true;
+      _planError = null;
+    });
+    PlanResult? creationResult;
+    try {
+      creationResult = await _taskApi.createPresetPlan(
+        token: session.token,
+        preset: presetKey,
+      );
+    } catch (_) {
+      creationResult = null;
+    }
+
+    final freshest = await _waitForPlan(session.token);
+    final planToShow = _pickBestPlan(creationResult, freshest);
+
+    if (!mounted) return;
+    setState(() {
+      _isBuildingPlan = false;
+    });
+
+    if (planToShow != null && planToShow.isSuccess && planToShow.planId != null) {
+      _setPlanData(planToShow.tasks, planToShow.planId!);
+      final args = PlanOverviewArgs(
+        planId: planToShow.planId!,
+        token: session.token,
+        tasks: planToShow.tasks,
+        prompt: planToShow.prompt ?? presetKey,
+      );
+      final decision = await Navigator.of(context).push<PlanDecision>(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: PlanOverviewPage.route),
+          builder: (_) => PlanOverviewPage(args: args),
+        ),
+      );
+      if (!mounted) return;
+      if (decision == PlanDecision.declined) {
+        await _taskApi.deletePlan(token: session.token, planId: planToShow.planId!);
+        await _loadActivePlan();
+        return;
+      }
+      await _loadActivePlan();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Plan created successfully.')),
+        );
+    } else {
+      final message = creationResult?.errorMessage ??
+          freshest.errorMessage ??
+          'Unable to build the plan right now.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<PlanResult> _waitForPlan(String token, {int attempts = 6}) async {
+    PlanResult last = const PlanResult.error('No plan yet');
+    for (var i = 0; i < attempts; i++) {
+      last = await _taskApi.fetchActivePlan(token: token);
+      if (last.isSuccess && last.planId != null) {
+        return last;
+      }
+      await Future.delayed(const Duration(milliseconds: 650));
+    }
+    return last;
+  }
+
+  PlanResult? _pickBestPlan(PlanResult? primary, PlanResult? secondary) {
+    bool valid(PlanResult? p) =>
+        p != null && p.isSuccess && p.planId != null;
+    if (valid(primary)) return primary;
+    if (valid(secondary)) return secondary;
+    return primary ?? secondary;
+  }
+
+  void _debugPlanResult(String label, PlanResult? result) {
+    if (kDebugMode) {
+      debugPrint(
+        '$label -> '
+        'isSuccess=${result?.isSuccess}, '
+        'planId=${result?.planId}, '
+        'tasks=${result?.tasks.length ?? 0}, '
+        'error=${result?.errorMessage}',
       );
     }
   }
@@ -959,6 +1111,14 @@ class _HomePageState extends State<HomePage> {
                   _isBuildingPlan = true;      // 👉 mostra overlay loading
                 });
                 _createPlan(goal);             // 👉 chiamata async
+              },
+              onPresetSelected: (preset) {
+                FocusScope.of(context).unfocus();
+                setState(() {
+                  _isAddHabitOpen = false;
+                  _isBuildingPlan = true;
+                });
+                _createPresetPlan(preset);
               },
               onClose: () {
                 FocusScope.of(context).unfocus();
@@ -1727,12 +1887,14 @@ class _AddHabitOverlay extends StatefulWidget {
     required this.goalText,
     required this.onGoalChanged,
     required this.onSubmit,
+    required this.onPresetSelected,
   });
 
   final VoidCallback onClose;
   final String goalText;
   final ValueChanged<String> onGoalChanged;
   final ValueChanged<String> onSubmit;
+  final ValueChanged<String> onPresetSelected;
 
   @override
   State<_AddHabitOverlay> createState() => _AddHabitOverlayState();
@@ -1787,6 +1949,7 @@ class _AddHabitOverlayState extends State<_AddHabitOverlay> {
               child: _AddHabitOverlayContent(
                 controller: _controller,
                 onSubmit: (goal) => widget.onSubmit(goal),
+                onPresetSelected: widget.onPresetSelected,
               ),
             ),
           ),
@@ -1800,10 +1963,12 @@ class _AddHabitOverlayContent extends StatelessWidget {
   const _AddHabitOverlayContent({
     required this.controller,
     required this.onSubmit,
+    required this.onPresetSelected,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
+  final ValueChanged<String> onPresetSelected;
 
   void _applySuggestion(String text) {
     controller.value = TextEditingValue(
@@ -1891,29 +2056,29 @@ class _AddHabitOverlayContent extends StatelessWidget {
                   SizedBox(
                     width: itemWidth,
                     child: _SuggestionChip(
-                      label: 'Track daily expenses',
-                      onTap: () => _handleSuggestionTap('Track daily expenses'),
+                      label: 'Move more',
+                      onTap: () => onPresetSelected('hard1'),
                     ),
                   ),
                   SizedBox(
                     width: itemWidth,
                     child: _SuggestionChip(
-                      label: 'Sketch more',
-                      onTap: () => _handleSuggestionTap('Sketch more'),
+                      label: 'Deep focus',
+                      onTap: () => onPresetSelected('hard2'),
                     ),
                   ),
                   SizedBox(
                     width: itemWidth,
                     child: _SuggestionChip(
-                      label: 'Tid up the room',
-                      onTap: () => _handleSuggestionTap('Tid up the room'),
+                      label: 'Strength',
+                      onTap: () => onPresetSelected('hard3'),
                     ),
                   ),
                   SizedBox(
                     width: itemWidth,
                     child: _SuggestionChip(
-                      label: 'Limit social media usage',
-                      onTap: () => _handleSuggestionTap('Limit social media usage'),
+                      label: 'Mind & learn',
+                      onTap: () => onPresetSelected('hard4'),
                     ),
                   ),
                 ],

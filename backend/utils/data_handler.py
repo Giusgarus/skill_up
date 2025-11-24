@@ -5,20 +5,19 @@ import backend.db.database as db
 from fastapi import HTTPException
 
 _CONFIG_PATH = Path(__file__).resolve().parents[0] / "env.json"
-if _CONFIG_PATH.exists():
-    with _CONFIG_PATH.open("r", encoding="utf-8") as f:
-        _cfg = json.load(f)
-else:
-    _cfg = {}
+with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+    _cfg = json.load(f)
 
-_ENV_REGISTER_QUESTIONS = [
-    s.replace("\"", "") for s in str(os.getenv("REGISTER_QUESTIONS", "")).split(",") if s
-]
 REGISTER_QUESTIONS: list = (
     _cfg.get("REGISTER_QUESTIONS")
     or _cfg.get("GATHERING_QUESTIONS")
-    or _ENV_REGISTER_QUESTIONS)
-REGISTER_INTERESTS_LABELS: list = _cfg.get("REGISTER_INTERESTS_LABELS", [])
+    or []
+)
+REGISTER_INTERESTS_LABELS: list = (
+    _cfg.get("REGISTER_INTERESTS_LABELS")
+    or _cfg.get("GATHERING_INTERESTS_LABELS")
+    or []
+)
 
 
 def get_user_info(user_id: str) -> dict:
@@ -69,6 +68,7 @@ def get_user_info(user_id: str) -> dict:
         "interests_info": [
             REGISTER_INTERESTS_LABELS[idx]
             for idx in user.get("interests_info") or user.get("selections_info") or []
+            if 0 <= idx < len(REGISTER_INTERESTS_LABELS)
         ]}
     questions_info = []
     for i, value in enumerate(list(user.get("questions_info", []))):

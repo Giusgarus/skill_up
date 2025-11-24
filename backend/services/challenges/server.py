@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 from statistics import mean
+from datetime import timedelta, date as date_cls
 from fastapi import APIRouter, HTTPException
 import backend.db.database as db
 import backend.utils.session as session
@@ -25,6 +26,27 @@ with CONFIG_PATH.open("r", encoding="utf-8") as f:
 
 CHALLENGES_MIN_HEAP_K_LEADER = int(_cfg.get("CHALLENGES_MIN_HEAP_K_LEADER"))
 CHALLENGES_DIFFICULTY_MAP = _cfg.get("CHALLENGES_DIFFICULTY_MAP")
+HARD_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
+    "hard1": [
+        {"title": "Morning jog", "description": "Run for 20 minutes at easy pace", "difficulty": "easy", "offset": 0},
+        {"title": "Core blast", "description": "3x15 crunches + 2x30s plank", "difficulty": "medium", "offset": 1},
+        {"title": "Stretch", "description": "10 minutes full body stretch", "difficulty": "easy", "offset": 2},
+    ],
+    "hard2": [
+        {"title": "Focus sprint", "description": "45 minutes deep work, no phone", "difficulty": "medium", "offset": 0},
+        {"title": "Inbox zero", "description": "Clear email + messages backlog", "difficulty": "easy", "offset": 1},
+        {"title": "Reflection", "description": "Write 5 bullet points about today", "difficulty": "easy", "offset": 1},
+    ],
+    "hard3": [
+        {"title": "Strength circuit", "description": "3x12 squats, 3x10 pushups, 3x12 lunges", "difficulty": "hard", "offset": 0},
+        {"title": "Walk", "description": "30 minute brisk walk", "difficulty": "easy", "offset": 2},
+    ],
+    "hard4": [
+        {"title": "Mindfulness", "description": "15 minutes guided meditation", "difficulty": "easy", "offset": 0},
+        {"title": "Learning", "description": "Study 25 minutes a new topic", "difficulty": "medium", "offset": 1},
+        {"title": "Review", "description": "Summarize what you learned", "difficulty": "easy", "offset": 1},
+    ],
+}
 
 
 # ==============================
@@ -45,6 +67,9 @@ class Task(Plan):
 
 class Replan(Plan):
     new_goal: str
+    
+class HardPlan(User):
+    preset: str
 
 
 # ===============================
@@ -52,6 +77,126 @@ class Replan(Plan):
 # ===============================
 router = APIRouter(prefix="/services/challenges", tags=["challenges"])
 
+def _insert_plan_for_user(
+    user_id: str,
+    tasks_dict: Dict[str, Dict[str, Any]],
+    prompt_text: str | None = None,
+    response_payload: Any = None,
+) -> Dict[str, Any]:
+    """Create plan and tasks for a user given a tasks dict (date -> task)."""
+    # 3. Update users (increment plan counter and track active plan)
+    user_doc = db.find_one(
+        table_name="users",
+        filters={"user_id": user_id},
+        projection={"_id": False, "n_plans": True},
+    )
+    if user_doc is None or "n_plans" not in user_doc:
+        raise HTTPException(
+            status_code=503,
+            detail="Invalid user_id or n_plans missing while creating plan",
+        )
+
+    plan_id = int(user_doc.get("n_plans", 0) or 0) + 1
+    update_user_res = db.update_one(
+        table_name="users",
+        keys_dict={"user_id": user_id},
+        values_dict={
+            "$set": {"n_plans": plan_id},
+            "$addToSet": {"active_plans": plan_id},
+        },
+    )
+    if update_user_res.matched_count == 0:
+        raise HTTPException(
+            status_code=503, detail="Invalid user_id while creating plan"
+        )
+
+    difficulty_values: List[int] = [
+        CHALLENGES_DIFFICULTY_MAP.get(
+            str(task["difficulty"]).lower(), 1  # default difficulty
+        )
+        for _, task in tasks_dict.items()
+    ]
+    avg_difficulty = round(mean(difficulty_values)) if difficulty_values else 1
+
+    res = db.insert(
+        table_name="plans",
+        record={
+            "plan_id": plan_id,
+            "user_id": user_id,
+            "n_tasks": len(tasks_dict),  # current tasks count
+            "n_tasks_done": 0,
+            "responses": [response_payload],
+            "prompts": [prompt_text],
+            "deleted": False,
+            "difficulty": avg_difficulty,
+            "created_at": timing.now_iso(),
+            "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
+            "n_replans": 0,
+            "tasks": [{date: [task] for date, task in tasks_dict.items()},
+            ],
+            # keep a running task id counter for uniqueness across replans
+            "next_task_id": len(tasks_dict),
+            "completed_at": None,
+        },
+    )
+    if not res:
+        raise HTTPException(
+            status_code=505, detail="Database error while creating plan"
+        )
+
+    # Create tasks
+    tasks: List[Dict[str, Any]] = []
+    for i, (date, task) in enumerate(tasks_dict.items()):
+        # validate/parse date
+        timing.from_iso_to_datetime(date)
+
+        diff_key = str(task["difficulty"]).lower()
+        difficulty = CHALLENGES_DIFFICULTY_MAP.get(diff_key, 1)
+        score = difficulty * 10
+
+        tasks.append(
+            {
+                "task_id": i,
+                "plan_id": plan_id,
+                "user_id": user_id,
+                "title": task["title"],
+                "description": task["description"],
+                "difficulty": difficulty,
+                "score": score,
+                "deadline_date": date,
+                "completed_at": None,
+                "deleted": False,
+            }
+        )
+    db.insert_many("tasks", tasks)
+
+    safe_tasks = [{k: v for k, v in task.items() if k != "_id"} for task in tasks]
+
+    return {
+        "status": True,
+        "plan_id": plan_id,
+        "prompt": prompt_text,
+        "response": response_payload,
+        "tasks": safe_tasks,
+        "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
+        "created_at": timing.now_iso(),
+    }
+
+def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
+    today = timing.now().date()
+    template = HARD_TEMPLATES.get(template_key.lower())
+    if not template:
+        raise HTTPException(status_code=404, detail="Unknown preset plan")
+    tasks: Dict[str, Dict[str, Any]] = {}
+    for item in template:
+        offset = int(item.get("offset", 0))
+        day = today + timedelta(days=offset)
+        tasks[day.isoformat()] = {
+            "title": item.get("title", ""),
+            "description": item.get("description", ""),
+            "difficulty": item.get("difficulty", "easy"),
+        }
+    return tasks
 
 
 # ==============================================
@@ -191,23 +336,30 @@ async def task_done(payload: Task) -> dict:
         if not (res.matched_count or res.upserted_id):
             raise HTTPException(status_code=408, detail="Invalid medal passed")
 
-    # 5. Update leaderboard
-    db.update_one(
-        table_name="leaderboard",
-        keys_dict={"_id": "topK"},
-        values_dict={
-            "$pull": {"items": {"username": user["username"]}},
-            "$push": {
-                "items": {
-                    "$each": [
-                        {"username": user["username"], "score": user["score"]}
-                    ],
-                    "$sort": {"score": -1, "username": 1},
-                    "$slice": CHALLENGES_MIN_HEAP_K_LEADER,
-                }
+    # 5. Update leaderboard (split pull/push to avoid Mongo path conflicts)
+    try:
+        db.update_one(
+            table_name="leaderboard",
+            keys_dict={"_id": "topK"},
+            values_dict={"$pull": {"items": {"username": user["username"]}}},
+        )
+        db.update_one(
+            table_name="leaderboard",
+            keys_dict={"_id": "topK"},
+            values_dict={
+                "$push": {
+                    "items": {
+                        "$each": [
+                            {"username": user["username"], "score": user["score"]}
+                        ],
+                        "$sort": {"score": -1, "username": 1},
+                        "$slice": CHALLENGES_MIN_HEAP_K_LEADER,
+                    }
+                },
             },
-        },
-    )
+        )
+    except Exception as exc:
+        logger.error("Failed to update leaderboard for user %s: %s", user["username"], exc)
 
     return {"status": True, "score": user["score"]}
 
@@ -342,6 +494,25 @@ async def get_llm_response(payload: Goal) -> dict:
         "response": initial_response,
         "tasks": tasks_dict,
     }
+
+
+# ==========================
+#       hardcoded plan
+# ==========================
+@router.post("/hard/{preset}", status_code=200)
+async def create_hard_plan(preset: str, payload: User) -> dict:
+    token = payload.token
+    valid_token, user_id = session.verify_session(token)
+    if not valid_token:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    tasks_dict = _build_hard_tasks(preset)
+    prompt_text = f"Preset plan {preset}"
+    return _insert_plan_for_user(
+        user_id=user_id,
+        tasks_dict=tasks_dict,
+        prompt_text=prompt_text,
+        response_payload={"preset": preset},
+    )
 
 
 # ==========================

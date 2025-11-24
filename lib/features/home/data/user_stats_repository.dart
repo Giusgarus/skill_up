@@ -36,9 +36,9 @@ class UserStatsRepository {
   final MedalHistoryRepository _medalRepository =
       MedalHistoryRepository.instance;
 
-  int _level = 30;
-  int _currentXp = 12;
-  int _xpTarget = 200;
+  int _level = 1;
+  int _currentXp = 0;
+  int _xpTarget = 100;
 
   LevelProgress levelProgress() => LevelProgress(
         level: _level,
@@ -83,5 +83,25 @@ class UserStatsRepository {
       _level += 1;
       _xpTarget = max(100, (_xpTarget * 1.1).round());
     }
+  }
+
+  void resetStats() {
+    _level = 1;
+    _currentXp = 0;
+    _xpTarget = 100;
+  }
+
+  void syncFromScore(int totalScore) {
+    // interpret score as total XP and recompute level/xp accordingly
+    _level = 1;
+    _xpTarget = 100;
+    _currentXp = 0;
+    int remaining = totalScore;
+    while (remaining >= _xpTarget) {
+      remaining -= _xpTarget;
+      _level += 1;
+      _xpTarget = max(100, (_xpTarget * 1.1).round());
+    }
+    _currentXp = remaining;
   }
 }
