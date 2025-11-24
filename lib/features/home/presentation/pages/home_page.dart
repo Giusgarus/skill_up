@@ -18,6 +18,7 @@ import 'package:skill_up/features/profile/presentation/pages/user_info_page.dart
 import 'package:skill_up/features/settings/presentation/pages/settings_page.dart';
 import 'package:skill_up/shared/notifications/notification_service.dart';
 import 'package:skill_up/features/home/presentation/pages/statistics_page.dart';
+import 'plan_overview.dart';
 
 class DailyTask {
   const DailyTask({
