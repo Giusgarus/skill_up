@@ -487,6 +487,11 @@ async def task_undo(payload: Task) -> dict:
 # ==========================
 @router.post("/report", status_code=200)
 def report(payload: Task) -> dict:
+    plan_id = payload.plan_id
+    new_goal = payload.new_goal
+    ok, user_id = session.verify_session(payload.token)
+    if not ok or not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
     return {}
 
 
@@ -607,8 +612,8 @@ async def get_llm_response(payload: Goal) -> dict:
     return {
         "status": True,
         "plan_id": plan_id,
-        "prompt": initial_prompt,
-        "response": initial_response,
+        "prompt": llm_resp["result"].get("prompt"),
+        "response": llm_resp["result"].get("response"),
         "tasks": tasks_dict,
     }
 
