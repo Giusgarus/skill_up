@@ -318,7 +318,7 @@ def test_update_user_via_set_route(backend_app):
     token = register_user(client, username)["token"]
 
     update_response = client.post(
-        "/services/challenges/set", json={"token": token, "attribute": "name", "record": "Ada Smith! #1"}
+        "/services/gathering/set", json={"token": token, "attribute": "name", "record": "Ada Smith! #1"}
     )
     assert update_response.status_code == 200
     assert update_response.json()["attribute"] == "name"
@@ -331,13 +331,13 @@ def test_update_user_validation_errors(backend_app):
     token = register_user(client, "invalid_chars")["token"]
 
     unsupported = client.post(
-        "/services/challenges/set",
+        "/services/gathering/set",
         json={"token": token, "attribute": "non_existing_field", "record": "value"},
     )
     assert unsupported.status_code == 401
 
     invalid_token = client.post(
-        "/services/challenges/set",
+        "/services/gathering/set",
         json={"token": "bogus", "attribute": "name", "record": "Ignored"},
     )
     assert invalid_token.status_code == 400
@@ -351,7 +351,7 @@ def test_update_user_rejects_duplicate_username(backend_app):
     second_token = register_user(client, "second_user")["token"]
 
     dup_username = client.post(
-        "/services/challenges/set",
+        "/services/gathering/set",
         json={"token": second_token, "attribute": "username", "record": "first_user"},
     )
     assert dup_username.status_code == 409
@@ -364,7 +364,7 @@ def test_get_user_allows_only_supported_attributes(backend_app):
     token = register_user(client, "getter")["token"]
 
     set_response = client.post(
-        "/services/challenges/set",
+        "/services/gathering/set",
         json={"token": token, "attribute": "name", "record": "Ada Lovelace"},
     )
     assert set_response.status_code == 200

@@ -662,18 +662,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     final original = tasksForDay[idx];
-    if (original.isCompleted) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('This task is already completed.'),
-            duration: Duration(milliseconds: 1400),
-          ),
-        );
-      return;
-    }
-    final toggled = original.copyWith(isCompleted: true);
+    final toggled = original.copyWith(isCompleted: !original.isCompleted);
     setState(() {
       final updatedDay = List<DailyTask>.from(tasksForDay);
       updatedDay[idx] = toggled;
@@ -693,7 +682,13 @@ class _HomePageState extends State<HomePage> {
       _medalRepository.setMedalForDay(normalizedDay, medal);
     });
 
-    unawaited(_persistTaskStatus(normalizedDay, toggled));
+    unawaited(
+      _persistTaskStatus(
+        normalizedDay,
+        toggled,
+        wasCompleted: original.isCompleted,
+      ),
+    );
   }
 
   void _selectDay(DateTime date) {
@@ -706,10 +701,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _persistTaskStatus(
     DateTime day,
-    DailyTask task,
-  ) async {
+    DailyTask task, {
+    required bool wasCompleted,
+  }) async {
     final session = await _ensureSession();
     if (session == null) {
+      return;
+    }
+    if (task.isCompleted == wasCompleted) {
       return;
     }
     try {
@@ -724,17 +723,23 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      final result = await _taskApi.markTaskDone(
-        token: session.token,
-        planId: task.planId,
-        taskId: task.remoteTaskId,
-      medalTaken: _medalCodeFor(
-        medalForProgress(
-          completed: _completedForDay(day),
-          total: _totalTasksForDay(day),
-        ),
-      ),
-    );
+      final result = task.isCompleted
+          ? await _taskApi.markTaskDone(
+              token: session.token,
+              planId: task.planId,
+              taskId: task.remoteTaskId,
+              medalTaken: _medalCodeFor(
+                medalForProgress(
+                  completed: _completedForDay(day),
+                  total: _totalTasksForDay(day),
+                ),
+              ),
+            )
+          : await _taskApi.markTaskUndone(
+              token: session.token,
+              planId: task.planId,
+              taskId: task.remoteTaskId,
+            );
       if (!result.isSuccess && mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -747,8 +752,9 @@ class _HomePageState extends State<HomePage> {
             ),
           );
       } else {
-        // Update XP/level locally based on task score
-        UserStatsRepository.instance.updateXp(task.score);
+        if (task.isCompleted) {
+          UserStatsRepository.instance.updateXp(task.score);
+        }
         if (result.newScore != null) {
           UserStatsRepository.instance.syncFromScore(result.newScore!);
         }

@@ -211,6 +211,8 @@ class TaskApi {
 
   Uri get _taskDoneUri =>
       Uri.parse(baseUrl).resolve('/services/challenges/task_done');
+  Uri get _taskUndoUri =>
+      Uri.parse(baseUrl).resolve('/services/challenges/task_undo');
   Uri get _activePlanUri =>
       Uri.parse(baseUrl).resolve('/services/challenges/plan/active');
   Uri get _createPlanUri =>
@@ -498,6 +500,43 @@ class TaskApi {
       }
       return TaskApiResult.error(
         'Failed to sync task (${response.statusCode}).',
+      );
+    } on SocketException catch (_) {
+      return const TaskApiResult.error('No internet connection.');
+    } on HttpException catch (_) {
+      return const TaskApiResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return TaskApiResult.error(
+        'Unexpected error syncing task.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<TaskApiResult> markTaskUndone({
+    required String token,
+    required int planId,
+    required int taskId,
+  }) async {
+    final payload = jsonEncode({
+      'token': token,
+      'plan_id': planId,
+      'task_id': taskId,
+    });
+    try {
+      final response = await _client.post(
+        _taskUndoUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final body = _decodeBody(response.body);
+        final newScore = (body['score'] as num?)?.toInt();
+        return TaskApiResult.success(newScore: newScore);
+      }
+      return TaskApiResult.error(
+        'Failed to undo task (${response.statusCode}).',
       );
     } on SocketException catch (_) {
       return const TaskApiResult.error('No internet connection.');

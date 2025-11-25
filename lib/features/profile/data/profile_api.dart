@@ -14,7 +14,7 @@ class ProfileApi {
   final http.Client _client;
   final String baseUrl;
 
-  Uri get _updateUri => Uri.parse(baseUrl).resolve('/services/challenges/set');
+  Uri get _updateUri => Uri.parse(baseUrl).resolve('/services/gathering/set');
   Uri get _getAttributeUri =>
       Uri.parse(baseUrl).resolve('/services/gathering/get');
 
