@@ -487,6 +487,48 @@ def test_task_done_error_paths(backend_app):
     assert missing_task.status_code == 404
 
 
+def test_report_stores_feedback_on_task(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "report_user")["token"]
+    create_plan(client, token)
+
+    report_text = "Wrapped up with some extra stretching"
+    response = client.post(
+        "/services/challenges/report",
+        json={"token": token, "plan_id": 1, "task_id": 0, "report": report_text},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] is True
+
+    task_doc = db["tasks"].find_one({"plan_id": 1, "task_id": 0})
+    assert task_doc["report"] == report_text
+    other_task = db["tasks"].find_one({"plan_id": 1, "task_id": 1})
+    assert other_task.get("report") is None
+
+
+def test_report_requires_valid_session_and_existing_task(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "report_guard")["token"]
+    create_plan(client, token)
+
+    bad_session = client.post(
+        "/services/challenges/report",
+        json={"token": "invalid", "plan_id": 1, "task_id": 0, "report": "ignored"},
+    )
+    assert bad_session.status_code == 401
+    assert bad_session.json()["detail"] == "Invalid or missing token"
+    assert db["tasks"].find_one({"plan_id": 1, "task_id": 0}).get("report") is None
+
+    missing_task = client.post(
+        "/services/challenges/report",
+        json={"token": token, "plan_id": 1, "task_id": 99, "report": "not found"},
+    )
+    assert missing_task.status_code == 503
+    assert db["tasks"].find_one({"plan_id": 1, "task_id": 0}).get("report") is None
+
+
 def test_task_undo_reverts_progress_and_leaderboard(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]
