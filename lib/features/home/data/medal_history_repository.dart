@@ -53,7 +53,6 @@ class MedalHistoryRepository {
     final map = <DateTime, MedalType>{};
     for (var month = 1; month <= 12; month++) {
       final date = DateTime(year, month);
-      ensureMonthSeed(date, totalTasksPerDay: totalTasksPerDay);
       map.addAll(medalsForMonth(date));
     }
     return map;
@@ -86,25 +85,23 @@ class MedalHistoryRepository {
   }
 
   /// Seeds medals if a given month has no stored data yet.
-  void ensureMonthSeed(
-    DateTime month, {
-    int totalTasksPerDay = defaultDailyTaskCount,
-  }) {
+  /// Uses empty medals so new users start with a clean history.
+  void ensureMonthSeed(DateTime month) {
     if (hasAnyForMonth(month)) {
       return;
     }
-    final fallback = _buildFallbackMedals(
-      month,
-      totalTasksPerDay: totalTasksPerDay,
-    );
-    seedMedals(fallback);
+    seedMedals(_buildEmptyMonth(month));
   }
 
   /// Seeds medals, preserving existing entries.
   void seedMedals(Map<DateTime, MedalType> medals) {
     final map = _ensureMap();
     medals.forEach((date, medal) {
-      map.putIfAbsent(dateOnly(date), () => medal);
+      final key = dateOnly(date);
+      final existing = map[key];
+      if (existing == null || existing == MedalType.none) {
+        map[key] = medal;
+      }
     });
   }
 
@@ -134,37 +131,22 @@ class MedalHistoryRepository {
   /// Estimates completed tasks for the given month using medal types.
   List<int> estimatedCompletionsForMonth(int year, int month,
       {int totalTasksPerDay = defaultDailyTaskCount}) {
-    ensureMonthSeed(DateTime(year, month), totalTasksPerDay: totalTasksPerDay);
+    ensureMonthSeed(DateTime(year, month));
     final medals = medalsForMonth(DateTime(year, month));
     return medals.entries.map((entry) {
       return _completedTasksFromMedal(entry.value, totalTasksPerDay);
     }).toList();
   }
 
-  Map<DateTime, MedalType> _buildFallbackMedals(
-    DateTime month, {
-    required int totalTasksPerDay,
-  }) {
+  Map<DateTime, MedalType> _buildEmptyMonth(DateTime month) {
     final monthStart = DateTime(month.year, month.month);
-    final today = dateOnly(DateTime.now());
     final daysInMonth =
         DateUtils.getDaysInMonth(monthStart.year, monthStart.month);
     final map = <DateTime, MedalType>{};
 
     for (var day = 1; day <= daysInMonth; day++) {
       final date = DateTime(monthStart.year, monthStart.month, day);
-      if (date.isAfter(today)) {
-        map[date] = MedalType.none;
-        continue;
-      }
-
-      final offsetDays = today.difference(date).inDays;
-      final completed =
-          (totalTasksPerDay - offsetDays).clamp(0, totalTasksPerDay).toInt();
-      map[date] = medalForProgress(
-        completed: completed,
-        total: totalTasksPerDay,
-      );
+      map[date] = MedalType.none;
     }
     return map;
   }

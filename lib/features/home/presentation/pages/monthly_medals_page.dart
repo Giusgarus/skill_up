@@ -24,9 +24,6 @@ class MonthlyMedalsPage extends StatefulWidget {
 }
 
 class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
-  static const int _defaultDailyTaskCount =
-      MedalHistoryRepository.defaultDailyTaskCount;
-
   final MedalHistoryRepository _repository = MedalHistoryRepository.instance;
   final AuthSessionStorage _authStorage = AuthSessionStorage();
 
@@ -60,10 +57,7 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
   }
 
   void _primeMonthData(DateTime month) {
-    _repository.ensureMonthSeed(
-      month,
-      totalTasksPerDay: _defaultDailyTaskCount,
-    );
+    _repository.ensureMonthSeed(month);
   }
 
   void _changeMonth(int offset) {
