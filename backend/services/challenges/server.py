@@ -96,7 +96,7 @@ def _insert_plan_for_user(
             detail="Invalid user_id or n_plans missing while creating plan",
         )
 
-    plan_id = int(user_doc.get("n_plans", 0) or 0) + 1
+    plan_id = int(user_doc.get("n_plans", 0) or 0) + 1 # Why +1? if we start from 0 is without +1
     update_user_res = db.update_one(
         table_name="users",
         keys_dict={"user_id": user_id},
@@ -130,8 +130,7 @@ def _insert_plan_for_user(
             "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
             "n_replans": 0,
             "tasks": [{date: [task] for date, task in tasks_dict.items()}],
-            # keep a running task id counter for uniqueness across replans
-            "next_task_id": len(tasks_dict),
+            "next_task_id": len(tasks_dict), # keep a running task id counter for uniqueness across replans
             "completed_at": None,
         },
     )
@@ -172,10 +171,10 @@ def _insert_plan_for_user(
     }
 
 def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
-    today = timing.now().date()
     template = HARD_TEMPLATES.get(template_key.lower())
     if not template:
         raise HTTPException(status_code=404, detail="Unknown preset plan")
+    today = timing.now().date()
     tasks: Dict[str, Dict[str, Any]] = {}
     for item in template:
         offset = int(item.get("offset", 0))
@@ -654,11 +653,10 @@ async def replan(payload: Replan) -> dict:
     )
     if not plan_id or plan is None:
         raise HTTPException(status_code=402, detail="Invalid Plan ID")
-
+    
+    # 2. Create the history for the LLM
     prompts = plan.get("prompts") or []
     responses = plan.get("responses") or []
-
-    # build history safely
     if prompts and responses:
         history = {
             "last_prompt": prompts[-1],
@@ -667,7 +665,7 @@ async def replan(payload: Replan) -> dict:
     else:
         history = {}
 
-    # 2. Communication with the LLM server
+    # 3. Communication with the LLM server
     llm_payload = {
         "goal": new_goal,
         "level": "0",  # Default to beginner
@@ -682,25 +680,21 @@ async def replan(payload: Replan) -> dict:
 
     new_tasks_dict: Dict[str, Dict[str, Any]] = dict(llm_resp["result"]["tasks"])
 
-    # 3. Mark existing tasks as deleted
+    # 4. Mark existing tasks as deleted
     db.update_many_filtered(
         table_name="tasks",
         filter={"plan_id": plan_id, "user_id": user_id, "deleted": False},
         update={"$set": {"deleted": True}},
     )
 
-    # 4. Insert new tasks with unique IDs
-    # Use next_task_id if present, otherwise fallback to previous n_tasks
+    # 5. Insert new tasks with unique IDs --> use next_task_id if present, otherwise fallback to previous n_tasks
     start_task_id = int(plan.get("next_task_id", plan.get("n_tasks", 0) or 0))
 
+    # 6. Create the new tasks
     tasks: List[Dict[str, Any]] = []
     for i, (date, task) in enumerate(new_tasks_dict.items()):
         timing.from_iso_to_datetime(date)
-
-        diff_key = str(task["difficulty"]).lower()
-        difficulty = CHALLENGES_DIFFICULTY_MAP.get(diff_key, 1)
-        score = difficulty * 10
-
+        difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)
         tasks.append(
             {
                 "task_id": start_task_id + i,
@@ -709,7 +703,7 @@ async def replan(payload: Replan) -> dict:
                 "title": task["title"],
                 "description": task["description"],
                 "difficulty": difficulty,
-                "score": score,
+                "score": difficulty * 10,
                 "deadline_date": date,
                 "completed_at": None,
                 "deleted": False,
@@ -717,9 +711,7 @@ async def replan(payload: Replan) -> dict:
         )
     db.insert_many("tasks", tasks)
 
-    safe_tasks = [{k: v for k, v in task.items() if k != "_id"} for task in tasks]
-
-    # 5. Update the plan
+    # 7. Update the plan
     db.find_one_and_update(
         table_name="plans",
         keys_dict={"user_id": user_id, "plan_id": plan_id},
@@ -743,6 +735,7 @@ async def replan(payload: Replan) -> dict:
         return_policy=ReturnDocument.AFTER,
     )
 
+    safe_tasks = [{k: v for k, v in task.items() if k != "_id"} for task in tasks]
     return {
         "status": True,
         "plan_id": plan_id,
