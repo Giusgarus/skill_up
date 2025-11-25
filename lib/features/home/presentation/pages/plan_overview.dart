@@ -205,40 +205,33 @@ class _BackPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
+    return Transform.translate(
+      offset: const Offset(0, 0), // 👈 per incollarlo al bordo sinistro
+      child: GestureDetector(
         onTap: onTap,
-        borderRadius: const BorderRadius.horizontal(
-          right: Radius.circular(28),
-        ),
-        child: Ink(
-          width: 72,
+        child: Container(
+          width: 100,
           height: 56,
-          decoration: BoxDecoration(
-            color: const Color(0xFFB3B3B3),
-            borderRadius: const BorderRadius.horizontal(
+          decoration: const BoxDecoration(
+            color: Color(0xFFB3B3B3),
+            borderRadius: BorderRadius.horizontal(
               right: Radius.circular(28),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black26,       // 👈 identico al secondo pill
                 blurRadius: 8,
-                offset: const Offset(0, 4),
+                offset: Offset(0, 4),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 14),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Image.asset(
-                'assets/icons/back.png',
-                width: 32,
-                height: 32,
-                fit: BoxFit.contain,
-              ),
-            ),
+          padding: const EdgeInsets.only(left: 14),
+          alignment: Alignment.centerLeft,
+          child: Image.asset(
+            'assets/icons/back.png',
+            width: 32,
+            height: 32,
+            fit: BoxFit.contain,
           ),
         ),
       ),
@@ -264,7 +257,13 @@ class _Header extends StatelessWidget {
           Text(
             'OVERVIEW OF YOUR PLAN',
             textAlign: TextAlign.center,
-            style: titleStyle,
+            style: const TextStyle(
+              fontFamily: 'FredokaOne',
+              fontSize: 44,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: 8),
           Text(

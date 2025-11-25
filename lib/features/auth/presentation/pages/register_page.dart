@@ -374,6 +374,7 @@ class _RegisterPageState extends State<RegisterPage> {
         child: Column(
           children: [
             const FieldLabel('Put your username:'),
+            const SizedBox(height: 8),
             PillTextField(
               controller: _userC,
               hint: 'username',
@@ -397,6 +398,7 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
             const SizedBox(height: 14),
             const FieldLabel('Put your e-mail:'),
+            const SizedBox(height: 8),
             PillTextField(
               controller: _emailC,
               hint: 'e-mail',
@@ -426,6 +428,7 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
             const SizedBox(height: 14),
             const FieldLabel('Put your password:'),
+            const SizedBox(height: 8),
             PillTextField(
               controller: _pwdC,
               hint: 'password',
@@ -1402,8 +1405,8 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
               Text(
                 questionText,
                 textAlign: TextAlign.center,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
+                style: textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
                   color: Colors.black,
                   height: 1.3,
                 ),
