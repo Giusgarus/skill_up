@@ -487,6 +487,67 @@ def test_task_done_error_paths(backend_app):
     assert missing_task.status_code == 404
 
 
+def test_task_undo_reverts_progress_and_leaderboard(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    username = "undo_player"
+    token = register_user(client, username)["token"]
+    create_plan(client, token)
+
+    assert client.post(
+        "/services/challenges/task_done",
+        json={"token": token, "plan_id": 1, "task_id": 0},
+    ).status_code == 200
+    assert client.post(
+        "/services/challenges/task_done",
+        json={"token": token, "plan_id": 1, "task_id": 1, "medal_taken": "G"},
+    ).status_code == 200
+
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert plan_doc["n_tasks_done"] == 2
+    assert plan_doc["completed_at"] is not None
+    assert db["users"].find_one({"username": username})["active_plans"] == []
+
+    undo_resp = client.post(
+        "/services/challenges/task_undo",
+        json={"token": token, "plan_id": 1, "task_id": 1},
+    )
+    assert undo_resp.status_code == 200, undo_resp.text
+    undo_body = undo_resp.json()
+    assert undo_body["status"] is True
+    assert undo_body["score"] == 10
+
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert plan_doc["n_tasks_done"] == 1
+    assert plan_doc["completed_at"] is None
+
+    task_doc = db["tasks"].find_one({"plan_id": 1, "task_id": 1})
+    assert task_doc["completed_at"] is None
+
+    user_doc = db["users"].find_one({"username": username})
+    assert user_doc["n_tasks_done"] == 1
+    assert user_doc["score"] == 10
+    assert 1 in user_doc["active_plans"]
+
+    medal_doc = db["medals"].find_one({"user_id": user_doc["user_id"]})
+    if medal_doc:
+        assert all(entry["task_id"] != 1 for entry in medal_doc.get("medal", []))
+
+    leaderboard_doc = db["leaderboard"].find_one({"_id": "topK"})
+    assert leaderboard_doc["items"][0] == {"username": username, "score": 10}
+
+
+def test_task_undo_requires_completed_task(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "undo_missing_task_user")["token"]
+    create_plan(client, token)
+
+    undo_resp = client.post(
+        "/services/challenges/task_undo", json={"token": token, "plan_id": 1, "task_id": 0}
+    )
+    assert undo_resp.status_code == 404
+
+
 def test_leaderboard_endpoint_returns_sorted_scores(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]
