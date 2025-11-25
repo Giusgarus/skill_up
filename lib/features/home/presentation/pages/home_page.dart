@@ -93,7 +93,8 @@ class _HomePageState extends State<HomePage> {
   AuthSession? _session;
   int? _activePlanId;
   late final DateTime _today;
-  late final List<DateTime> _currentWeek;
+  List<DateTime> _currentWeek = const [];
+  late DateTime _weekAnchor;
   Map<DateTime, int?> _completedTasksByDay = {};
   final Map<DateTime, List<DailyTask>> _tasksByDay = {};
   final Map<DateTime, Map<String, bool>> _taskStatusesByDay = {};
@@ -110,12 +111,28 @@ class _HomePageState extends State<HomePage> {
     _medalRepository = MedalHistoryRepository.instance;
     _today = dateOnly(DateTime.now());
     _currentWeek = _generateWeekFor(_today);
+    _weekAnchor = _today;
     _completedTasksByDay = _seedMonthlyCompletedTasks();
     _ensureWeekCoverage();
     _selectedDay = _today;
     unawaited(_loadProfileImage());
     unawaited(_ensureSession().then((_) => _loadActivePlan()));
     unawaited(_validateSessionWithRetry());
+  }
+
+  void _changeWeek(int offsetWeeks) {
+    setState(() {
+      _weekAnchor = _weekAnchor.add(Duration(days: 7 * offsetWeeks));
+      _currentWeek = _generateWeekFor(_weekAnchor);
+      _ensureWeekCoverage();
+
+      // Se il giorno selezionato non è nella nuova settimana,
+      // lo spostiamo al lunedì della settimana corrente
+      if (!_currentWeek.any((d) => dateOnly(d) == _selectedDay)) {
+        _selectedDay = _currentWeek.first;
+        _tasks = _buildTasksForDay(_selectedDay);
+      }
+    });
   }
 
   @override
@@ -1080,6 +1097,8 @@ class _HomePageState extends State<HomePage> {
                     today: _today,
                     medals: weeklyMedals,
                     onDaySelected: _selectDay,
+                    onPreviousWeek: () => _changeWeek(-1),
+                    onNextWeek: () => _changeWeek(1),
                   ),
                 ),
               ],
@@ -1299,6 +1318,8 @@ class _CalendarStrip extends StatelessWidget {
     required this.today,
     required this.medals,
     required this.onDaySelected,
+    required this.onPreviousWeek,
+    required this.onNextWeek,
   });
 
   final List<DateTime> weekDays;
@@ -1306,6 +1327,8 @@ class _CalendarStrip extends StatelessWidget {
   final DateTime today;
   final Map<DateTime, MedalType> medals;
   final ValueChanged<DateTime> onDaySelected;
+  final VoidCallback onPreviousWeek;
+  final VoidCallback onNextWeek;
 
   @override
   Widget build(BuildContext context) {
@@ -1321,15 +1344,45 @@ class _CalendarStrip extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 🔹 Riga superiore: frecce + giorni della settimana allargati
         Row(
           children: [
-            for (final dayLabel in weekdayShortLabels)
-              Expanded(
-                child: Center(child: Text(dayLabel, style: labelStyle)),
+            GestureDetector(
+              onTap: onPreviousWeek,
+              child: const Icon(
+                Icons.chevron_left,
+                color: Colors.white,
+                size: 26,
               ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Row(
+                children: [
+                  for (final dayLabel in weekdayShortLabels)
+                    Expanded(
+                      child: Center(
+                        child: Text(dayLabel, style: labelStyle),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: onNextWeek,
+              child: const Icon(
+                Icons.chevron_right,
+                color: Colors.white,
+                size: 26,
+              ),
+            ),
           ],
         ),
+
         const SizedBox(height: 8),
+
+        // 🔹 Riga sotto: SOLO numeri + medaglie, non toccata dalle frecce
         Row(
           children: [
             for (final date in weekDays)
@@ -1369,43 +1422,87 @@ class _CalendarDayBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 👉 colore del numero:
+    // - se selezionato: bianco (anche se è oggi)
+    // - altrimenti, se è oggi: giallino
+    // - altrimenti: bianco
+    final Color dayTextColor = isSelected
+        ? Colors.white
+        : (isToday ? const Color(0xFFFFD89B) : Colors.white);
+
+    // stile numero giorno
     final TextStyle textStyle = TextStyle(
-      fontFamily: 'FredokaOne',        // stesso font
+      fontFamily: 'FredokaOne',
       fontSize: 26,
       fontWeight: FontWeight.w700,
       fontStyle: FontStyle.italic,
-      color: isSelected ? const Color(0xFFFFA726) : Colors.white,
+      color: dayTextColor,
       letterSpacing: 1.0,
     );
-
 
     final bool hasMedal = medal != MedalType.none;
     final Color? starTint = hasMedal ? medalTintForType(medal) : null;
 
+    // 👉 ora il rettangolino (alone) vale SOLO per il selezionato
+    final Color borderColor = isSelected ? Colors.white : Colors.transparent;
+    final Color bgColor = isSelected
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.transparent;
+
     return GestureDetector(
       onTap: () => onTap(date),
-      child: Column(
-        mainAxisSize: MainAxisSize.min, // 👈 importante
-        children: [
-          Text('${date.day}', style: textStyle),
-          const SizedBox(height: 4), // 👈 prima era 8
-          if (hasMedal)
-            SvgPicture.asset(
-              medalAssetForType(medal),
-              width: 35, // 👈 un po' più piccolo
-              height: 35,
-              colorFilter: starTint != null
-                  ? ColorFilter.mode(starTint, BlendMode.srcIn)
-                  : null,
-            )
-          else
-            SvgPicture.asset(
-              'assets/icons/blank_star_icon.svg',
-              width: 35, // 👈 anche il blank uguale
-              height: 35,
-              fit: BoxFit.contain,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: borderColor,
+            width: borderColor == Colors.transparent ? 0 : 2,
+          ),
+          color: bgColor,
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                // Bordo nero
+                Text(
+                  '${date.day}',
+                  style: textStyle.copyWith(
+                    foreground: Paint()
+                      ..style = PaintingStyle.stroke
+                      ..strokeWidth = 1.3
+                      ..color = Colors.black,
+                  ),
+                ),
+                // Riempimento
+                Text(
+                  '${date.day}',
+                  style: textStyle,
+                ),
+              ],
             ),
-        ],
+            const SizedBox(height: 4),
+            if (hasMedal)
+              SvgPicture.asset(
+                medalAssetForType(medal),
+                width: 35,
+                height: 35,
+                colorFilter: starTint != null
+                    ? ColorFilter.mode(starTint, BlendMode.srcIn)
+                    : null,
+              )
+            else
+              SvgPicture.asset(
+                'assets/icons/blank_star_icon.svg',
+                width: 35,
+                height: 35,
+                fit: BoxFit.contain,
+              ),
+          ],
+        ),
       ),
     );
   }

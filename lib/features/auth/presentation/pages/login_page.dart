@@ -107,6 +107,7 @@ class _LoginPageState extends State<LoginPage> {
         child: Column(
           children: [
             const FieldLabel('Put your username:'),
+            const SizedBox(height: 8),
             PillTextField(
               controller: _userC,
               hint: 'username',
@@ -119,6 +120,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 14),
             const FieldLabel('Put your password:'),
+            const SizedBox(height: 8),
             PillTextField(
               controller: _pwdC,
               hint: 'password',
