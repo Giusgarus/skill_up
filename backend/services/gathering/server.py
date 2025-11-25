@@ -144,7 +144,6 @@ def set_interests(payload: Interests):
     
     return {"status": True}
 
-
 # ==========================
 #         questions
 # ==========================

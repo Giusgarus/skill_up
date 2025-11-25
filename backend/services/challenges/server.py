@@ -111,12 +111,9 @@ def _insert_plan_for_user(
         )
 
     difficulty_values: List[int] = [
-        CHALLENGES_DIFFICULTY_MAP.get(
-            str(task["difficulty"]).lower(), 1  # default difficulty
-        )
+        CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)  # default difficulty
         for _, task in tasks_dict.items()
     ]
-    avg_difficulty = round(mean(difficulty_values)) if difficulty_values else 1
 
     res = db.insert(
         table_name="plans",
@@ -128,12 +125,11 @@ def _insert_plan_for_user(
             "responses": [response_payload],
             "prompts": [prompt_text],
             "deleted": False,
-            "difficulty": avg_difficulty,
+            "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
             "created_at": timing.now_iso(),
             "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
             "n_replans": 0,
-            "tasks": [{date: [task] for date, task in tasks_dict.items()},
-            ],
+            "tasks": [{date: [task] for date, task in tasks_dict.items()}],
             # keep a running task id counter for uniqueness across replans
             "next_task_id": len(tasks_dict),
             "completed_at": None,
@@ -147,27 +143,20 @@ def _insert_plan_for_user(
     # Create tasks
     tasks: List[Dict[str, Any]] = []
     for i, (date, task) in enumerate(tasks_dict.items()):
-        # validate/parse date
-        timing.from_iso_to_datetime(date)
-
-        diff_key = str(task["difficulty"]).lower()
-        difficulty = CHALLENGES_DIFFICULTY_MAP.get(diff_key, 1)
-        score = difficulty * 10
-
-        tasks.append(
-            {
-                "task_id": i,
-                "plan_id": plan_id,
-                "user_id": user_id,
-                "title": task["title"],
-                "description": task["description"],
-                "difficulty": difficulty,
-                "score": score,
-                "deadline_date": date,
-                "completed_at": None,
-                "deleted": False,
-            }
-        )
+        timing.from_iso_to_datetime(date) # validate the date
+        difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)
+        tasks.append({
+            "task_id": i,
+            "plan_id": plan_id,
+            "user_id": user_id,
+            "title": task["title"],
+            "description": task["description"],
+            "difficulty": difficulty,
+            "score": difficulty * 10,
+            "deadline_date": date,
+            "completed_at": None,
+            "deleted": False
+        })
     db.insert_many("tasks", tasks)
 
     safe_tasks = [{k: v for k, v in task.items() if k != "_id"} for task in tasks]
@@ -203,11 +192,13 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
 # ================== ROUTES ====================
 # ==============================================
 
+# ==========================
+#            set
+# ==========================
 @router.post("/set", status_code=200)
 async def set_user(payload: gathering_server.UserBody):
     # Reuse the data validation and update logic from the gathering service.
     return gathering_server.update_user(payload)
-
 
 # ==========================
 #         task_done

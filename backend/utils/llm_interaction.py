@@ -24,6 +24,10 @@ LLM_TIMEOUT = _cfg.get("LLM_TIMEOUT")
 LLM_MAX_RETRIES = _cfg.get("LLM_MAX_RETRIES")
 
 
+
+# ==============================
+#          Functions
+# ==============================
 def get_session(retries: int = LLM_MAX_RETRIES, backoff_factor: float = 0.3) -> requests.Session:
     """Return a requests session configured with retry policy."""
     session = requests.Session()
@@ -41,9 +45,6 @@ def get_session(retries: int = LLM_MAX_RETRIES, backoff_factor: float = 0.3) -> 
     return session
 
 
-# ==============================
-#          Functions
-# ==============================
 def validate_challenges(resp: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Parameters
