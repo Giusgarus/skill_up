@@ -192,14 +192,6 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
 # ==============================================
 
 # ==========================
-#            set
-# ==========================
-@router.post("/set", status_code=200)
-async def set_user(payload: gathering_server.UserBody):
-    # Reuse the data validation and update logic from the gathering service.
-    return gathering_server.update_user(payload)
-
-# ==========================
 #         task_done
 # ==========================
 @router.post("/task_done", status_code=200)
@@ -423,7 +415,7 @@ async def task_undo(payload: Task) -> dict:
             },
             {
                 "$set": {"completed_at": None}
-                }
+            }
         ],
         projection={"_id": False, "completed_at": True, "n_tasks_done": True},
         return_policy=ReturnDocument.AFTER,
@@ -436,23 +428,20 @@ async def task_undo(payload: Task) -> dict:
         table_name="users",
         keys_dict={"user_id": user_id},
         values_dict={
-        "$inc": {"n_tasks_done": -1, "score": -task_doc["score"]}, "$addToSet": {"active_plans": plan_id}
+            "$inc": {"n_tasks_done": -1, "score": -task_doc["score"]},
+            "$addToSet": {"active_plans": plan_id}
         },
         projection={"_id": False, "username": True, "score": True},
         return_policy=ReturnDocument.AFTER,
-        )
+    )
     if not user:
         raise HTTPException(status_code=406, detail="User not found after update")
     if user["score"] is None or not user["username"]:
-        raise HTTPException(
-            status_code=407, detail="Invalid projection after updating user"
-        )
+        raise HTTPException(status_code=407, detail="Invalid projection after updating user")
 
     # 4. Remove medal entry for this task/day (best-effort)
     try:
-        completion_day = (
-            timing.from_iso_to_datetime(task_doc["completed_at"]).date().isoformat()
-        )
+        completion_day = (timing.from_iso_to_datetime(task_doc["completed_at"]).date().isoformat())
     except Exception:
         completion_day = timing.now().date().isoformat()
 
@@ -491,6 +480,14 @@ async def task_undo(payload: Task) -> dict:
         logger.error("Failed to update leaderboard for user %s: %s", user["username"], exc)
 
     return {"status": True, "score": user["score"]}
+
+
+# ==========================
+#          report
+# ==========================
+@router.post("/report", status_code=200)
+def report(payload: Task) -> dict:
+    return {}
 
 
 # ==========================
@@ -555,11 +552,6 @@ async def get_llm_response(payload: Goal) -> dict:
         )
         for _, task in tasks_dict.items()
     ]
-    avg_difficulty = round(mean(difficulty_values)) if difficulty_values else 1
-
-    initial_prompt = llm_resp["result"].get("prompt")
-    initial_response = llm_resp["result"].get("response")
-
     res = db.insert(
         table_name="plans",
         record={
@@ -567,24 +559,20 @@ async def get_llm_response(payload: Goal) -> dict:
             "user_id": user_id,
             "n_tasks": len(tasks_dict),  # current tasks count
             "n_tasks_done": 0,
-            "responses": [initial_response],
-            "prompts": [initial_prompt],
+            "responses": [llm_resp["result"].get("response")],
+            "prompts": [llm_resp["result"].get("prompt")],
             "deleted": False,
-            "difficulty": avg_difficulty,
+            "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
             "created_at": timing.now_iso(),
             "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
             "n_replans": 0,
-            "tasks": [{date: [task] for date, task in tasks_dict.items()},
-            ],
-            # keep a running task id counter for uniqueness across replans
-            "next_task_id": len(tasks_dict),
+            "tasks": [{date: [task] for date, task in tasks_dict.items()}],
+            "next_task_id": len(tasks_dict), # keep a running task id counter for uniqueness across replans
             "completed_at": None,
         },
     )
     if not res:
-        raise HTTPException(
-            status_code=505, detail="Database error while creating plan"
-        )
+        raise HTTPException(status_code=505, detail="Database error while creating plan")
 
     # 5. Create tasks
     tasks: List[Dict[str, Any]] = []
