@@ -65,6 +65,9 @@ class Task(Plan):
     task_id: int
     medal_taken: Optional[str] = "None"
 
+class Report(Task):
+    report: str
+
 class Replan(Plan):
     new_goal: str
     
@@ -486,13 +489,28 @@ async def task_undo(payload: Task) -> dict:
 #          report
 # ==========================
 @router.post("/report", status_code=200)
-def report(payload: Task) -> dict:
+def report(payload: Report) -> dict:
     plan_id = payload.plan_id
-    new_goal = payload.new_goal
+    task_id = payload.task_id
+    report_str = payload.report
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
-    return {}
+    
+    # 1. Set the report field in tasks collection
+    res = db.update_one(
+        table_name="tasks",
+        keys_dict={
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "task_id": task_id,
+        },
+        values_dict={"$set": {"report": report_str}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=503, detail="Invalid user_id while creating plan")
+
+    return {"status": True}
 
 
 # ==========================
@@ -546,9 +564,7 @@ async def get_llm_response(payload: Goal) -> dict:
         },
     )
     if update_user_res.matched_count == 0:
-        raise HTTPException(
-            status_code=503, detail="Invalid user_id while creating plan"
-        )
+        raise HTTPException(status_code=503, detail="Invalid user_id while creating plan")
 
     # 4. Create plan
     difficulty_values: List[int] = [
