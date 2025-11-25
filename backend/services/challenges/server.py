@@ -355,6 +355,145 @@ async def task_done(payload: Task) -> dict:
 
 
 # ==========================
+#        task_undo
+# ==========================
+@router.post("/task_undo", status_code=200)
+async def task_undo(payload: Task) -> dict:
+    ok, user_id = session.verify_session(payload.token)
+    plan_id = payload.plan_id
+    task_id = payload.task_id
+
+    if not ok or not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    if plan_id is None:
+        raise HTTPException(status_code=402, detail="Invalid Plan ID")
+    if task_id is None:
+        raise HTTPException(status_code=403, detail="Invalid Task ID")
+
+    # Ensure the task exists and is currently completed
+    task_doc = db.find_one(
+        table_name="tasks",
+        filters={
+            "task_id": task_id,
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "deleted": False,
+        },
+        projection={"_id": False, "score": True, "completed_at": True},
+    )
+    if not task_doc or task_doc.get("completed_at") is None:
+        raise HTTPException(status_code=404, detail="Task not completed or not found")
+
+    # 1. Mark task as not completed
+    task = db.find_one_and_update(
+        table_name="tasks",
+        keys_dict={
+            "task_id": task_id,
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "deleted": False,
+            "completed_at": {"$ne": None},
+        },
+        values_dict={"$set": {"completed_at": None}},
+        projection={"_id": False, "score": True},
+        return_policy=ReturnDocument.AFTER,
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not completed or not found")
+
+    # 2. Update plan counters and completion flag
+    plan = db.find_one_and_update(
+        table_name="plans",
+        keys_dict={"user_id": user_id, "plan_id": plan_id},
+        values_dict=[
+            {
+                "$set": {
+                    "n_tasks_done": {
+                        "$max": [
+                            0,
+                            {
+                                "$subtract": [
+                                    {"$ifNull": ["$n_tasks_done", 0]},
+                                    1,
+                                ]
+                            },
+                        ]
+                    }
+                }
+            },
+            {
+                "$set": {"completed_at": None}
+                }
+        ],
+        projection={"_id": False, "completed_at": True, "n_tasks_done": True},
+        return_policy=ReturnDocument.AFTER,
+    )
+    if not plan:
+        raise HTTPException(status_code=405, detail="Plan not found")
+
+    # 3. Update user stats
+    user = db.find_one_and_update(
+        table_name="users",
+        keys_dict={"user_id": user_id},
+        values_dict={
+        "$inc": {"n_tasks_done": -1, "score": -task_doc["score"]}, "$addToSet": {"active_plans": plan_id}
+        },
+        projection={"_id": False, "username": True, "score": True},
+        return_policy=ReturnDocument.AFTER,
+        )
+    if not user:
+        raise HTTPException(status_code=406, detail="User not found after update")
+    if user["score"] is None or not user["username"]:
+        raise HTTPException(
+            status_code=407, detail="Invalid projection after updating user"
+        )
+
+    # 4. Remove medal entry for this task/day (best-effort)
+    try:
+        completion_day = (
+            timing.from_iso_to_datetime(task_doc["completed_at"]).date().isoformat()
+        )
+    except Exception:
+        completion_day = timing.now().date().isoformat()
+
+    try:
+        db.update_one(
+            table_name="medals",
+            keys_dict={"user_id": user_id, "timestamp": completion_day},
+            values_dict={"$pull": {"medal": {"task_id": task_id}}},
+        )
+    except Exception as exc:
+        logger.error("Failed to remove medal for user %s: %s", user["username"], exc)
+
+    # 5. Update leaderboard (split pull/push to avoid Mongo path conflicts)
+    try:
+        db.update_one(
+            table_name="leaderboard",
+            keys_dict={"_id": "topK"},
+            values_dict={"$pull": {"items": {"username": user["username"]}}},
+        )
+        db.update_one(
+            table_name="leaderboard",
+            keys_dict={"_id": "topK"},
+            values_dict={
+                "$push": {
+                    "items": {
+                        "$each": [
+                            {"username": user["username"], "score": user["score"]}
+                        ],
+                        "$sort": {"score": -1, "username": 1},
+                        "$slice": CHALLENGES_MIN_HEAP_K_LEADER,
+                    }
+                },
+            },
+        )
+    except Exception as exc:
+        logger.error("Failed to update leaderboard for user %s: %s", user["username"], exc)
+
+    return {"status": True, "score": user["score"]}
+
+
+# ==========================
 #          prompt
 # ==========================
 @router.post("/prompt", status_code=200)

@@ -66,6 +66,7 @@ user_collection.create_index("user_id", unique=True)
     "score": "<int>",
     "deadline_date": "<ISO datetime UTC>",
     "completed_at": "<ISO datetime UTC>|null",
+    "report": "<string>",
     "deleted": "<bool>"
   },
   .
