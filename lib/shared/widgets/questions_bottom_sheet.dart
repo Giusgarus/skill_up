@@ -147,18 +147,22 @@ class _QuestionsBottomSheetState extends State<QuestionsBottomSheet> {
           'MORE ABOUT',
           textAlign: TextAlign.center,
           style: textTheme.displaySmall?.copyWith(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         Text(
           'YOU',
           textAlign: TextAlign.center,
           style: textTheme.displaySmall?.copyWith(
+            fontFamily: 'FugazOne',
+            fontSize: 44,
             fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
             color: Colors.black,
-            letterSpacing: 1.1,
           ),
         ),
         const SizedBox(height: 24),
@@ -184,8 +188,8 @@ class _QuestionsBottomSheetState extends State<QuestionsBottomSheet> {
               Text(
                 questionText,
                 textAlign: TextAlign.center,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
+                style: textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
                   color: Colors.black,
                   height: 1.3,
                 ),

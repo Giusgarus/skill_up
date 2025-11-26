@@ -104,6 +104,10 @@ class _HomePageState extends State<HomePage> {
   String _newHabitGoal = '';
   ImageProvider? _profileImage;
   bool _isBuildingPlan = false;
+  bool _initializedFromRoute = false;
+  bool _isFeedbackOpen = false;
+  DailyTask? _feedbackTask;
+  String _feedbackText = '';
 
   @override
   void initState() {
@@ -133,6 +137,24 @@ class _HomePageState extends State<HomePage> {
         _tasks = _buildTasksForDay(_selectedDay);
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initializedFromRoute) return;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is DateTime) {
+      final normalized = dateOnly(args);
+      _weekAnchor = normalized;
+      _currentWeek = _generateWeekFor(_weekAnchor);
+      _ensureWeekCoverage();
+      _selectedDay = normalized;
+      _tasks = _buildTasksForDay(_selectedDay);
+    }
+
+    _initializedFromRoute = true;
   }
 
   @override
@@ -716,6 +738,46 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _openFeedbackForTask(DailyTask task) {
+    setState(() {
+      _feedbackTask = task;
+      _feedbackText = '';
+      _isFeedbackOpen = true;
+    });
+  }
+
+  void _closeFeedback() {
+    setState(() {
+      _isFeedbackOpen = false;
+      _feedbackTask = null;
+      _feedbackText = '';
+    });
+  }
+
+  void _submitFeedback(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      // niente testo → non facciamo nulla
+      return;
+    }
+
+    // 👉 chiudi il popup
+    _closeFeedback();
+
+    // 👉 fingi di averlo inviato
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Thanks for your feedback 📨'),
+          duration: Duration(milliseconds: 1400),
+        ),
+      );
+
+    // 🔴 per ora NON salviamo e non chiamiamo nessuna API
+  }
+
   Future<void> _persistTaskStatus(
     DateTime day,
     DailyTask task, {
@@ -1028,7 +1090,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _HabitGrid(tasks: _tasks, onTaskTap: _toggleTask),
+                _HabitGrid(
+                  tasks: _tasks,
+                  onTaskTap: _toggleTask,
+                  onTaskLongPress: _openFeedbackForTask,
+                ),
                 const SizedBox(height: 120),
               ],
             ),
@@ -1152,6 +1218,18 @@ class _HomePageState extends State<HomePage> {
                   _newHabitGoal = '';
                 });
               },
+            ),
+
+          // 6-bis) overlay feedback harmful response
+          if (_isFeedbackOpen && _feedbackTask != null)
+            _TaskFeedbackOverlay(
+              task: _feedbackTask!,
+              initialText: _feedbackText,
+              onChanged: (value) {
+                setState(() => _feedbackText = value);
+              },
+              onClose: _closeFeedback,
+              onSubmit: _submitFeedback,
             ),
 
           // 7) overlay di loading AI
@@ -1801,10 +1879,15 @@ class _StreakBanner extends StatelessWidget {
 }
 
 class _HabitGrid extends StatelessWidget {
-  const _HabitGrid({required this.tasks, required this.onTaskTap});
+  const _HabitGrid({
+    required this.tasks,
+    required this.onTaskTap,
+    required this.onTaskLongPress,
+  });
 
   final List<DailyTask> tasks;
   final ValueChanged<String> onTaskTap;
+  final ValueChanged<DailyTask> onTaskLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1818,8 +1901,12 @@ class _HabitGrid extends StatelessWidget {
           children: tasks.map((task) {
             return SizedBox(
               width: itemWidth,
-              height: itemWidth, // 👈 card quadrata
-              child: _HabitCard(task: task, onTap: onTaskTap),
+              height: itemWidth,
+              child: _HabitCard(
+                task: task,
+                onTap: onTaskTap,
+                onLongPress: onTaskLongPress,
+              ),
             );
           }).toList(),
         );
@@ -1829,10 +1916,15 @@ class _HabitGrid extends StatelessWidget {
 }
 
 class _HabitCard extends StatelessWidget {
-  const _HabitCard({required this.task, required this.onTap});
+  const _HabitCard({
+    required this.task,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   final DailyTask task;
   final ValueChanged<String> onTap;
+  final ValueChanged<DailyTask>? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1849,6 +1941,7 @@ class _HabitCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () => onTap(task.id),
+      onLongPress: () => onLongPress?.call(task),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
@@ -2315,6 +2408,13 @@ class _BuildingPlanOverlay extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(28),
+
+              // ⭐️ NUOVO ➜ leggero bordino nero
+              border: Border.all(
+                color: Colors.black.withOpacity(1),
+                width: 1.5,
+              ),
+
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.15),
@@ -2323,6 +2423,7 @@ class _BuildingPlanOverlay extends StatelessWidget {
                 ),
               ],
             ),
+
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2353,6 +2454,267 @@ class _BuildingPlanOverlay extends StatelessWidget {
   }
 }
 
+
+class _TaskFeedbackOverlay extends StatefulWidget {
+  const _TaskFeedbackOverlay({
+    required this.task,
+    required this.initialText,
+    required this.onChanged,
+    required this.onSubmit,
+    required this.onClose,
+  });
+
+  final DailyTask task;
+  final String initialText;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onClose;
+
+  @override
+  State<_TaskFeedbackOverlay> createState() => _TaskFeedbackOverlayState();
+}
+
+class _TaskFeedbackOverlayState extends State<_TaskFeedbackOverlay> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _controller.addListener(_handleTextChanged);
+  }
+
+  void _handleTextChanged() {
+    widget.onChanged(_controller.text);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleTextChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onClose,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.55),
+          child: Center(
+            child: GestureDetector(
+              onTap: () {}, // blocca il tap sul contenuto
+              child: Container(
+                width: 340,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 20,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // titolo
+                    const Text(
+                      'Report harmful response',
+                      style: TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0x99000000),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 🔹 TEXTFIELD con bordino gradient come i suggestion chip
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          width: 2,
+                          color: Colors.transparent,
+                        ),
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFFFF9A9E),
+                            Color(0xFFFFCF71),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Container(
+                        margin: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: _controller,
+                          autofocus: true,
+                          maxLines: 4,
+                          minLines: 2,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            hintText:
+                            'Tell us what felt harmful, unsafe or wrong...',
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(
+                              fontFamily: 'FiraCode',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                              color: Color(0x99000000),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                          style: const TextStyle(
+                            fontFamily: 'FiraCode',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            height: 1.3,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // quick chips
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _FeedbackChip(
+                          label: 'Unsafe/violent',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Unsafe/violent]'.trim();
+                          },
+                        ),
+                        _FeedbackChip(
+                          label: 'Offensive',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Offensive]'.trim();
+                          },
+                        ),
+                        _FeedbackChip(
+                          label: 'Hallucinated',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Hallucinated]'.trim();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // bottone invio
+                    Align(
+                      alignment: Alignment.center,
+                      child: GestureDetector(
+                        onTap: () => widget.onSubmit(_controller.text),
+                        child: Container(
+                          width: 100,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.18),
+                                blurRadius: 10,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: SvgPicture.asset(
+                            'assets/icons/send_icon.svg',
+                            width: 32,
+                            height: 32,
+                            colorFilter: const ColorFilter.mode(
+                              Colors.white,
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FeedbackChip extends StatelessWidget {
+  const _FeedbackChip({required this.label, this.onTap});
+
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFFE5E5E5),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'FiraCode',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.black,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _AiPlanPage extends StatelessWidget {
   const _AiPlanPage({super.key});

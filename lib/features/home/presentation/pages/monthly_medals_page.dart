@@ -6,6 +6,7 @@ import '../../domain/calendar_labels.dart';
 import '../../domain/medal_utils.dart';
 import '../../../auth/data/storage/auth_session_storage.dart';
 import 'statistics_page.dart';
+import 'home_page.dart';
 
 ////////////////////////////// test
 //import 'plan_overview.dart';
@@ -159,6 +160,12 @@ class _MonthlyMedalsPageState extends State<MonthlyMedalsPage> {
                           medal: medal,
                           isToday: isToday,
                           isHighlighted: isHighlighted,
+                          onLongPress: () {
+                            Navigator.of(context).pushNamed(
+                              HomePage.route,
+                              arguments: dateOnly(date),
+                            );
+                          },
                         );
                       },
                     ),
@@ -295,12 +302,14 @@ class _DayCell extends StatelessWidget {
     required this.medal,
     required this.isToday,
     required this.isHighlighted,
+    this.onLongPress,              // 👈 nuovo
   });
 
   final DateTime date;
   final MedalType medal;
   final bool isToday;
   final bool isHighlighted;
+  final VoidCallback? onLongPress; // 👈 nuovo
 
   @override
   Widget build(BuildContext context) {
@@ -327,45 +336,45 @@ class _DayCell extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.06)
         : Colors.transparent;
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: borderColor,
-          width: borderColor == Colors.transparent ? 0 : 2,
+    return GestureDetector(
+      onLongPress: onLongPress,     // 👈 qui
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: borderColor,
+            width: borderColor == Colors.transparent ? 0 : 2,
+          ),
+          color: bgColor,
         ),
-        color: bgColor,
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // numero sopra (come nel mockup)
-          Text(
-            dayLabel,
-            style: const TextStyle(
-              fontFamily: 'FredokaOne',
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              fontStyle: FontStyle.italic,
-              color: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              dayLabel,
+              style: const TextStyle(
+                fontFamily: 'FredokaOne',
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic,
+                color: Colors.white,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          // medaglia più grande
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: SvgPicture.asset(
-              medalAsset,
-              fit: BoxFit.contain,
-              // coloro solo se è una medaglia vera
-              colorFilter: medalTint == null
-                  ? null
-                  : ColorFilter.mode(medalTint, BlendMode.srcIn),
+            const SizedBox(height: 2),
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: SvgPicture.asset(
+                medalAsset,
+                fit: BoxFit.contain,
+                colorFilter: medalTint == null
+                    ? null
+                    : ColorFilter.mode(medalTint, BlendMode.srcIn),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
