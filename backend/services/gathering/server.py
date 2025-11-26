@@ -75,6 +75,21 @@ def get_user(payload: UserAttribute) -> dict:
         raise HTTPException(status_code = 401, detail = "Invalid or missing token")
     if attribute not in GATHERING_ALLOWED_DATA_FIELDS:
         raise HTTPException(status_code = 401, detail = "Unsupported attribute")
+    if attribute == "medals":
+        try:
+            medals = db.find_many(
+                table_name="medals",
+                filters={"user_id": user_id},
+                projection={"_id": False, "timestamp": True, "medal": True},
+            )
+        except Exception:
+            raise HTTPException(status_code=402, detail="Database error while fetching medals")
+        medal_map = {
+            entry["timestamp"]: entry.get("medal", [])
+            for entry in medals
+            if entry.get("timestamp")
+        }
+        return {"status": True, "medals": medal_map}
     user = db.find_one(
         table_name="users",
         filters = {"user_id": user_id},
@@ -82,6 +97,17 @@ def get_user(payload: UserAttribute) -> dict:
     )
     if not user:
         raise HTTPException(status_code = 402, detail = "User not found")
+    if attribute == "interests_info":
+        raw_interests = user.get("interests_info") or user.get("selections_info") or []
+        interests = []
+        for idx in raw_interests:
+            try:
+                index = int(idx)
+            except Exception:
+                continue
+            if 0 <= index < len(GATHERING_INTERESTS_LABELS):
+                interests.append(GATHERING_INTERESTS_LABELS[index])
+        return {"status": True, attribute: interests}
     return {"status": True, attribute: user.get(attribute, None)}
 
 # ==========================

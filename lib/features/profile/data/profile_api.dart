@@ -32,6 +32,7 @@ class ProfileApi {
     'age',
     'profile_pic',
     'onboarding_answers',
+    'medals',
   ];
 
   Future<ProfileApiResult> uploadProfilePicture({

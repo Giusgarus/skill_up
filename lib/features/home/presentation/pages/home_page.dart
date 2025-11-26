@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:skill_up/features/auth/data/services/auth_api.dart';
+import 'package:skill_up/features/auth/data/services/gathering_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
 import 'package:skill_up/features/home/data/daily_task_completion_storage.dart';
@@ -11,6 +12,7 @@ import 'package:skill_up/features/home/data/medal_history_repository.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
 import 'package:skill_up/features/home/data/user_stats_repository.dart';
 import 'package:skill_up/features/home/domain/calendar_labels.dart';
+import 'package:skill_up/features/home/domain/goal_suggestions.dart';
 import 'package:skill_up/features/home/domain/medal_utils.dart';
 import 'package:skill_up/features/home/presentation/pages/monthly_medals_page.dart';
 import 'package:skill_up/features/profile/data/user_profile_sync_service.dart';
@@ -80,6 +82,7 @@ class _HomePageState extends State<HomePage> {
   final AuthSessionStorage _authStorage = AuthSessionStorage();
   final TaskApi _taskApi = TaskApi();
   final AuthApi _authApi = AuthApi();
+  final GatheringApi _gatheringApi = GatheringApi();
   Timer? _tokenRetryTimer;
   bool _tokenValidationInProgress = false;
   bool _sessionInvalidated = false;
@@ -108,6 +111,8 @@ class _HomePageState extends State<HomePage> {
   bool _isFeedbackOpen = false;
   DailyTask? _feedbackTask;
   String _feedbackText = '';
+  List<String> _goalSuggestions = buildGoalSuggestions(const []);
+  bool _loadingSuggestions = false;
 
   @override
   void initState() {
@@ -120,7 +125,10 @@ class _HomePageState extends State<HomePage> {
     _ensureWeekCoverage();
     _selectedDay = _today;
     unawaited(_loadProfileImage());
-    unawaited(_ensureSession().then((_) => _loadActivePlan()));
+    unawaited(_ensureSession().then((_) {
+      _loadActivePlan();
+      _loadGoalSuggestions();
+    }));
     unawaited(_validateSessionWithRetry());
   }
 
@@ -162,6 +170,7 @@ class _HomePageState extends State<HomePage> {
     _tokenRetryTimer?.cancel();
     _authApi.close();
     _taskApi.close();
+    _gatheringApi.close();
     super.dispose();
   }
 
@@ -210,6 +219,23 @@ class _HomePageState extends State<HomePage> {
           );
       }
     }
+  }
+
+  Future<void> _loadGoalSuggestions() async {
+    final session = await _ensureSession();
+    if (session == null) {
+      return;
+    }
+    setState(() {
+      _loadingSuggestions = true;
+    });
+    final result = await _gatheringApi.fetchInterests(token: session.token);
+    final suggestions = buildGoalSuggestions(result.interests);
+    if (!mounted) return;
+    setState(() {
+      _goalSuggestions = suggestions;
+      _loadingSuggestions = false;
+    });
   }
 
   void _setPlanData(List<RemoteTask> remoteTasks, int planId) {
@@ -573,19 +599,6 @@ class _HomePageState extends State<HomePage> {
     return const Color(0xFF9BE7A1);
   }
 
-  String _medalCodeFor(MedalType medal) {
-    switch (medal) {
-      case MedalType.gold:
-        return 'G';
-      case MedalType.silver:
-        return 'S';
-      case MedalType.bronze:
-        return 'B';
-      case MedalType.none:
-        return 'None';
-    }
-  }
-
   int get _totalTasks => _tasks.length;
 
   int get _completedToday => _tasks.where((task) => task.isCompleted).length;
@@ -755,27 +768,63 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _submitFeedback(String text) {
+    final task = _feedbackTask;
     final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      // niente testo → non facciamo nulla
+    if (task == null || trimmed.isEmpty) {
+      _closeFeedback();
       return;
     }
 
-    // 👉 chiudi il popup
     _closeFeedback();
+    unawaited(_sendFeedback(task, trimmed));
+  }
 
-    // 👉 fingi di averlo inviato
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Thanks for your feedback 📨'),
-          duration: Duration(milliseconds: 1400),
-        ),
+  Future<void> _sendFeedback(DailyTask task, String text) async {
+    final session = await _ensureSession();
+    if (session == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('No active session found. Please log in again.'),
+            duration: Duration(milliseconds: 1400),
+          ),
+        );
+      return;
+    }
+
+    try {
+      final result = await _taskApi.reportTaskFeedback(
+        token: session.token,
+        planId: task.planId,
+        taskId: task.remoteTaskId,
+        report: text,
       );
-
-    // 🔴 per ora NON salviamo e non chiamiamo nessuna API
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              result.isSuccess
+                  ? 'Thanks for your feedback 📨'
+                  : (result.errorMessage ?? 'Unable to send feedback.'),
+            ),
+            duration: const Duration(milliseconds: 1500),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Unable to send feedback.'),
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+    }
   }
 
   Future<void> _persistTaskStatus(
@@ -807,7 +856,7 @@ class _HomePageState extends State<HomePage> {
               token: session.token,
               planId: task.planId,
               taskId: task.remoteTaskId,
-              medalTaken: _medalCodeFor(
+              medalTaken: medalCodeForType(
                 medalForProgress(
                   completed: _completedForDay(day),
                   total: _totalTasksForDay(day),
@@ -915,75 +964,6 @@ class _HomePageState extends State<HomePage> {
       }
 
       // Refresh with all active plans/tasks after accepting
-      await _loadActivePlan();
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(content: Text('Plan created successfully.')),
-        );
-    } else {
-      final message = creationResult?.errorMessage ??
-          freshest.errorMessage ??
-          'Unable to build the plan right now.';
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
-  Future<void> _createPresetPlan(String presetKey) async {
-    final session = await _ensureSession();
-    if (session == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No active session found. Please log in again.'),
-        ),
-      );
-      return;
-    }
-    setState(() {
-      _isBuildingPlan = true;
-      _planError = null;
-    });
-    PlanResult? creationResult;
-    try {
-      creationResult = await _taskApi.createPresetPlan(
-        token: session.token,
-        preset: presetKey,
-      );
-    } catch (_) {
-      creationResult = null;
-    }
-
-    final freshest = await _waitForPlan(session.token);
-    final planToShow = _pickBestPlan(creationResult, freshest);
-
-    if (!mounted) return;
-    setState(() {
-      _isBuildingPlan = false;
-    });
-
-    if (planToShow != null && planToShow.isSuccess && planToShow.planId != null) {
-      _setPlanData(planToShow.tasks, planToShow.planId!);
-      final args = PlanOverviewArgs(
-        planId: planToShow.planId!,
-        token: session.token,
-        tasks: planToShow.tasks,
-        prompt: planToShow.prompt ?? presetKey,
-      );
-      final decision = await Navigator.of(context).push<PlanDecision>(
-        MaterialPageRoute(
-          settings: const RouteSettings(name: PlanOverviewPage.route),
-          builder: (_) => PlanOverviewPage(args: args),
-        ),
-      );
-      if (!mounted) return;
-      if (decision == PlanDecision.declined) {
-        await _taskApi.deletePlan(token: session.token, planId: planToShow.planId!);
-        await _loadActivePlan();
-        return;
-      }
       await _loadActivePlan();
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -1178,6 +1158,7 @@ class _HomePageState extends State<HomePage> {
             bottom: 24,
             child: _AddHabitButton(
               onPressed: () {
+                unawaited(_loadGoalSuggestions());
                 setState(() {
                   _isAddHabitOpen = true;
                   _newHabitGoal = '';
@@ -1209,7 +1190,7 @@ class _HomePageState extends State<HomePage> {
                   _isAddHabitOpen = false;
                   _isBuildingPlan = true;
                 });
-                _createPresetPlan(preset);
+                _createPlan(preset);
               },
               onClose: () {
                 FocusScope.of(context).unfocus();
@@ -1218,6 +1199,8 @@ class _HomePageState extends State<HomePage> {
                   _newHabitGoal = '';
                 });
               },
+              suggestions: _goalSuggestions,
+              loadingSuggestions: _loadingSuggestions,
             ),
 
           // 6-bis) overlay feedback harmful response
@@ -2084,6 +2067,8 @@ class _AddHabitOverlay extends StatefulWidget {
     required this.onGoalChanged,
     required this.onSubmit,
     required this.onPresetSelected,
+    required this.suggestions,
+    this.loadingSuggestions = false,
   });
 
   final VoidCallback onClose;
@@ -2091,6 +2076,8 @@ class _AddHabitOverlay extends StatefulWidget {
   final ValueChanged<String> onGoalChanged;
   final ValueChanged<String> onSubmit;
   final ValueChanged<String> onPresetSelected;
+  final List<String> suggestions;
+  final bool loadingSuggestions;
 
   @override
   State<_AddHabitOverlay> createState() => _AddHabitOverlayState();
@@ -2146,6 +2133,8 @@ class _AddHabitOverlayState extends State<_AddHabitOverlay> {
                 controller: _controller,
                 onSubmit: (goal) => widget.onSubmit(goal),
                 onPresetSelected: widget.onPresetSelected,
+                suggestions: widget.suggestions,
+                loadingSuggestions: widget.loadingSuggestions,
               ),
             ),
           ),
@@ -2160,11 +2149,15 @@ class _AddHabitOverlayContent extends StatelessWidget {
     required this.controller,
     required this.onSubmit,
     required this.onPresetSelected,
+    required this.suggestions,
+    this.loadingSuggestions = false,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
   final ValueChanged<String> onPresetSelected;
+  final List<String> suggestions;
+  final bool loadingSuggestions;
 
   void _applySuggestion(String text) {
     controller.value = TextEditingValue(
@@ -2240,43 +2233,51 @@ class _AddHabitOverlayContent extends StatelessWidget {
           const SizedBox(height: 16),
 
           // ✅ Griglia 2x2 a larghezza fissa
+          if (loadingSuggestions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Refreshing with your interests...',
+                    style: TextStyle(
+                      fontFamily: 'FiraCode',
+                      fontSize: 14,
+                      color: Colors.black.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           LayoutBuilder(
             builder: (context, constraints) {
               // 2 colonne, uno spazio orizzontale da 12 tra le card
               final double itemWidth = (constraints.maxWidth - 12) / 2;
+              final toShow = (suggestions.isNotEmpty
+                      ? suggestions
+                      : buildGoalSuggestions(const []))
+                  .take(4)
+                  .toList();
 
               return Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  SizedBox(
-                    width: itemWidth,
-                    child: _SuggestionChip(
-                      label: 'Move more',
-                      onTap: () => onPresetSelected('hard1'),
+                  for (final label in toShow)
+                    SizedBox(
+                      width: itemWidth,
+                      child: _SuggestionChip(
+                        label: label,
+                        onTap: () => onPresetSelected(label),
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _SuggestionChip(
-                      label: 'Deep focus',
-                      onTap: () => onPresetSelected('hard2'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _SuggestionChip(
-                      label: 'Strength',
-                      onTap: () => onPresetSelected('hard3'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _SuggestionChip(
-                      label: 'Mind & learn',
-                      onTap: () => onPresetSelected('hard4'),
-                    ),
-                  ),
                 ],
               );
             },

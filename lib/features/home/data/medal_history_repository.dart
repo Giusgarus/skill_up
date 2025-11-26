@@ -105,6 +105,18 @@ class MedalHistoryRepository {
     });
   }
 
+  /// Replaces all stored medals for the active user.
+  void replaceAll(Map<DateTime, MedalType> medals) {
+    final map = _ensureMap();
+    map
+      ..clear()
+      ..addEntries(
+        medals.entries.map(
+          (entry) => MapEntry(dateOnly(entry.key), entry.value),
+        ),
+      );
+  }
+
   /// Stores [medal] for [day], overriding previous values.
   void setMedalForDay(DateTime day, MedalType medal) {
     final map = _ensureMap();

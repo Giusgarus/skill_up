@@ -1,11 +1,98 @@
 import 'dart:convert';
 
 import '../../home/data/medal_history_repository.dart';
+import '../../home/domain/medal_utils.dart';
 import '../domain/user_profile_fields.dart';
 import 'profile_api.dart';
 import 'profile_field_mapping.dart';
 import 'user_profile_info_storage.dart';
 import 'user_profile_storage.dart';
+
+const Map<MedalType, int> _medalPriority = <MedalType, int>{
+  MedalType.none: 0,
+  MedalType.bronze: 1,
+  MedalType.silver: 2,
+  MedalType.gold: 3,
+};
+
+/// Parses the backend medals payload into a normalized date/medal map.
+Map<DateTime, MedalType> parseBackendMedals(dynamic raw) {
+  final result = <DateTime, MedalType>{};
+  if (raw == null) {
+    return result;
+  }
+
+  MedalType bestMedal(dynamic value) {
+    MedalType best = MedalType.none;
+    void consider(MedalType candidate) {
+      if (_medalPriority[candidate]! > _medalPriority[best]!) {
+        best = candidate;
+      }
+    }
+
+    if (value is List) {
+      for (final entry in value) {
+        consider(_medalFromEntry(entry));
+      }
+    } else {
+      consider(_medalFromEntry(value));
+    }
+    return best;
+  }
+
+  if (raw is Map) {
+    raw.forEach((key, value) {
+      final parsedDate = _parseDate(key);
+      if (parsedDate == null) return;
+      result[dateOnly(parsedDate)] = bestMedal(value);
+    });
+    return result;
+  }
+
+  if (raw is Iterable) {
+    for (final entry in raw) {
+      if (entry is! Map) {
+        continue;
+      }
+      final parsedDate = _parseDate(
+        entry['timestamp'] ?? entry['date'] ?? entry['day'],
+      );
+      if (parsedDate == null) {
+        continue;
+      }
+      final medalData =
+          entry['medal'] ?? entry['medals'] ?? entry['entries'] ?? entry['data'];
+      result[dateOnly(parsedDate)] = bestMedal(medalData);
+    }
+  }
+
+  return result;
+}
+
+DateTime? _parseDate(dynamic value) {
+  if (value is DateTime) {
+    return value;
+  }
+  if (value == null) {
+    return null;
+  }
+  try {
+    return DateTime.parse(value.toString());
+  } catch (_) {
+    return null;
+  }
+}
+
+MedalType _medalFromEntry(dynamic entry) {
+  if (entry is Map) {
+    final code = entry['grade'] ?? entry['medal'] ?? entry['type'] ?? entry['value'];
+    return medalTypeFromCode(code?.toString());
+  }
+  if (entry is String) {
+    return medalTypeFromCode(entry);
+  }
+  return MedalType.none;
+}
 
 class UserProfileSyncService {
   UserProfileSyncService._();
@@ -34,6 +121,10 @@ class UserProfileSyncService {
     }
 
     final data = result.data!;
+    if (data.containsKey('medals')) {
+      final parsedMedals = parseBackendMedals(data['medals']);
+      _medalRepository.replaceAll(parsedMedals);
+    }
     final fieldSource = data['fields'] is Map ? data['fields'] as Map : data;
     final normalizedFields = <String, dynamic>{};
     if (fieldSource is Map) {

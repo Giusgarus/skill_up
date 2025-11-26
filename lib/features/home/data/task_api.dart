@@ -221,6 +221,8 @@ class TaskApi {
       Uri.parse(baseUrl).resolve('/services/challenges/plan/delete');
   Uri _hardPlanUri(String preset) =>
       Uri.parse(baseUrl).resolve('/services/challenges/hard/$preset');
+  Uri get _reportUri =>
+      Uri.parse(baseUrl).resolve('/services/challenges/report');
 
   Future<PlanResult> fetchActivePlan({required String token}) async {
     final payload = jsonEncode({'token': token});
@@ -545,6 +547,54 @@ class TaskApi {
     } catch (error, stackTrace) {
       return TaskApiResult.error(
         'Unexpected error syncing task.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<TaskApiResult> reportTaskFeedback({
+    required String token,
+    required int planId,
+    required int taskId,
+    required String report,
+  }) async {
+    final payload = jsonEncode({
+      'token': token,
+      'plan_id': planId,
+      'task_id': taskId,
+      'report': report,
+    });
+    try {
+      final response = await _client.post(
+        _reportUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        return const TaskApiResult.success();
+      }
+      String? message;
+      if (response.body.isNotEmpty) {
+        try {
+          final Map<String, dynamic> parsed =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          message =
+              (parsed['detail'] ?? parsed['error'] ?? parsed['message']) as String?;
+        } catch (_) {
+          // ignore malformed body
+        }
+      }
+      return TaskApiResult.error(
+        message ?? 'Unable to submit feedback (${response.statusCode}).',
+      );
+    } on SocketException catch (_) {
+      return const TaskApiResult.error('No internet connection.');
+    } on HttpException catch (_) {
+      return const TaskApiResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return TaskApiResult.error(
+        'Unexpected error while sending feedback.',
         error: error,
         stackTrace: stackTrace,
       );

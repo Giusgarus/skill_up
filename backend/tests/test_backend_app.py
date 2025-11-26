@@ -384,6 +384,49 @@ def test_get_user_allows_only_supported_attributes(backend_app):
     assert unsupported.json()["detail"] == "Unsupported attribute"
 
 
+def test_get_interests_returns_labels(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "interest_owner")["token"]
+
+    set_response = client.post(
+        "/services/gathering/interests",
+        json={"token": token, "interests": ["Health", "Career"]},
+    )
+    assert set_response.status_code == 200, set_response.text
+
+    response = client.post(
+        "/services/gathering/get",
+        json={"token": token, "attribute": "interests_info"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["interests_info"] == ["Health", "Career"]
+
+
+def test_get_user_returns_medals_from_collection(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "medal_user")["token"]
+    user_doc = db["users"].find_one({"username": "medal_user"})
+    today = datetime.utcnow().date().isoformat()
+
+    db["medals"].insert_many(
+        [
+            {"user_id": user_doc["user_id"], "timestamp": today, "medal": [{"grade": "S", "task_id": 0}]},
+            {"user_id": user_doc["user_id"], "timestamp": "2024-01-02", "medal": []},
+        ]
+    )
+
+    response = client.post(
+        "/services/gathering/get",
+        json={"token": token, "attribute": "medals"},
+    )
+
+    assert response.status_code == 200, response.text
+    medals = response.json().get("medals", {})
+    assert medals[today][0]["grade"] == "S"
+    assert "2024-01-02" in medals
+
+
 def test_prompt_endpoint_creates_plan_and_tasks(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]

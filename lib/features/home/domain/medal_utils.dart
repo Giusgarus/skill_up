@@ -45,3 +45,34 @@ MedalType medalForProgress({required int completed, required int total}) {
 
   return MedalType.none;
 }
+
+String medalCodeForType(MedalType medal) {
+  switch (medal) {
+    case MedalType.gold:
+      return 'G';
+    case MedalType.silver:
+      return 'S';
+    case MedalType.bronze:
+      return 'B';
+    case MedalType.none:
+      return 'None';
+  }
+}
+
+MedalType medalTypeFromCode(String? code) {
+  final normalized = (code ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'G':
+    case 'GOLD':
+      return MedalType.gold;
+    case 'S':
+    case 'SILVER':
+      return MedalType.silver;
+    case 'B':
+    case 'BRONZE':
+      return MedalType.bronze;
+    case 'NONE':
+    default:
+      return MedalType.none;
+  }
+}

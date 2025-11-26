@@ -18,6 +18,8 @@ class GatheringApi {
       Uri.parse(baseUrl).resolve('/services/gathering/interests');
   Uri get _questionsUri =>
       Uri.parse(baseUrl).resolve('/services/gathering/questions');
+  Uri get _getAttributeUri =>
+      Uri.parse(baseUrl).resolve('/services/gathering/get');
 
   Future<GatheringResult> sendInterests({
     required String token,
@@ -39,6 +41,53 @@ class GatheringApi {
       'answers': answers,
     });
     return _post(_questionsUri, payload, 'answers');
+  }
+
+  Future<InterestsFetchResult> fetchInterests({required String token}) async {
+    final payload = jsonEncode({
+      'token': token,
+      'attribute': 'interests_info',
+    });
+    try {
+      final response = await _client.post(
+        _getAttributeUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body =
+            response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body) as Map<String, dynamic>;
+        final rawInterests = body['interests_info'];
+        final interests = rawInterests is List
+            ? rawInterests.whereType<Object>().map((e) => e.toString()).toList()
+            : const <String>[];
+        return InterestsFetchResult.success(interests);
+      }
+      String? message;
+      if (response.body.isNotEmpty) {
+        try {
+          final Map<String, dynamic> parsed =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          message =
+              (parsed['detail'] ?? parsed['error'] ?? parsed['message']) as String?;
+        } catch (_) {
+          // ignore malformed body
+        }
+      }
+      return InterestsFetchResult.error(
+        message ?? 'Unable to fetch interests (${response.statusCode}).',
+      );
+    } on SocketException catch (_) {
+      return const InterestsFetchResult.error('No internet connection.');
+    } on HttpException catch (_) {
+      return const InterestsFetchResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return InterestsFetchResult.error(
+        'Unexpected error while fetching interests.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<GatheringResult> _post(
@@ -93,6 +142,23 @@ class GatheringResult {
 
   const GatheringResult.error(this.errorMessage, {this.error, this.stackTrace});
 
+  final String? errorMessage;
+  final Object? error;
+  final StackTrace? stackTrace;
+
+  bool get isSuccess => errorMessage == null;
+}
+
+class InterestsFetchResult {
+  const InterestsFetchResult.success(this.interests)
+    : errorMessage = null,
+      error = null,
+      stackTrace = null;
+
+  const InterestsFetchResult.error(this.errorMessage, {this.error, this.stackTrace})
+    : interests = const [];
+
+  final List<String> interests;
   final String? errorMessage;
   final Object? error;
   final StackTrace? stackTrace;
