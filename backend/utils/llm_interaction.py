@@ -140,7 +140,11 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     history_list: list = []
     if isinstance(history_data, list):
         history_list = history_data
-
+        
+        
+    # print("THE LAST RESPONSE:", history_list[-1])
+    
+    
     # 3. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
@@ -189,7 +193,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         tasks: dict[str, dict[str, Any]] = {}
         today = timing.now().date()
         for idx, ch in enumerate(challenges):
-            date_str = (today + timedelta(days=idx)).isoformat()
+            date_str = (today + timedelta(days=ch.get("day_offset"))).isoformat()
             title = ch.get("challenge_title") or f"Challenge {idx+1}"
             desc = ch.get("challenge_description") or ""
             diff = str(ch.get("difficulty") or "easy")

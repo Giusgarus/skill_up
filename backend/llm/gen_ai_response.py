@@ -309,7 +309,45 @@ def validate_ai_response(response_data: dict):
             return False, "Response contains potentially harmful content"
 
     return True, None
+import json
+from datetime import datetime, timedelta
 
+# 1. SETUP: Mock User Availability (Logic you likely already have)
+# Let's say user is free: Mon (0), Wed (2), Fri (4)
+user_free_weekdays = [0, 2, 4] 
+
+def get_next_free_dates(start_date, count, free_days):
+    """Generates a list of valid dates based on user availability."""
+    dates = []
+    current = start_date
+    while len(dates) < count:
+        # If current day of week is in user's free list
+        if current.weekday() in free_days:
+            dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+    return dates
+
+    # 2. GET AI RESPONSE
+    # Assume 'ai_response_json' is the clean JSON list from SkillUp Coach
+    challenges = ai_response_json['challenges_list']
+
+    # 3. DEAL THE CARDS
+    today = datetime.now()
+    valid_dates = get_next_free_dates(today, len(challenges), user_free_weekdays)
+
+    final_tasks = {}
+
+    # Zip the dates with the challenges
+    for date_str, challenge in zip(valid_dates, challenges):
+        final_tasks[date_str] = {
+            "title": challenge['challenge_title'],
+            "description": challenge['challenge_description'],
+            "difficulty": challenge['difficulty'],
+            "duration": challenge['duration_minutes']
+        }
+
+    # 4. RESULT
+    print(json.dumps(final_tasks, indent=2))
 # -----------------------
 # Core AI Function
 # -----------------------
@@ -323,25 +361,41 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     YOUR MISSION:
     Create engaging, bite-sized mini-challenges based on the user's goal. Your tone must be motivating, clear, and energetic (like a game quest giver).
 
-    CRITICAL INSTRUCTIONS:
-    1. JSON ONLY: Your output must be a strictly valid JSON object. Do not add markdown formatting (like ```json).
-    2. SAFETY FIRST: Never generate challenges that are dangerous, illegal, physically harmful, or violate corporate safety policies.
-    3. GAMIFY: Use action-oriented language (e.g., "Mission," "Quest," "Sprint," "Unlock").
-    4. DURATION: Challenges must be doable in 5 to 30 minutes.
+    CRITICAL GUIDELINES:
+    1. JSON ONLY: Output must be raw JSON. Do NOT use markdown code blocks (```json).
+    2. SAFETY: No dangerous, illegal, or physically harmful quests.
+    3. VIABILITY: If the goal is impossible within the constraints, set "challenges_count" to 0 and "error_message" to "Quest invalid."
+    4. SCHEDULING: Challenges do not need to be daily. Space them out based on the user's availability.
+    5. DURATION: Challenges must take 5-30 minutes.
 
-    OUTPUT STRUCTURE:
-    You must return a JSON object containing a list of challenges.
+    Prefer active verbs and concise instructions. Avoid filler words:
+    EXAMPLES OF PASSIVE vs. ACTIVE TRANSLATION:
+    - User Goal: "Learn Spanish"
+      BAD (Passive): "Read a list of kitchen vocabulary."
+      GOOD (Active): "The Labeling Quest: Write Spanish labels on sticky notes and attach them to 5 items in your kitchen."
+
+    - User Goal: "Get Fit"
+      BAD (Passive): "Watch a video on proper squat form."
+      GOOD (Active): "The Form Check: Record a 10-second video of yourself doing 5 squats, then watch it to self-correct your posture."
+
+    - User Goal: "Learn Marketing"
+      BAD (Passive): "Study how to write a hook."
+      GOOD (Active): "The Viral Hook: Write 3 different opening tweets for a hypothetical product launch."
+    
+    OUTPUT SCHEMA:
     {
-        "challenges_count": 2,
+        "challenges_count": <int>,
         "challenges_list": [
             {
-                "challenge_title": "Quest Name (Max 60 chars)",
-                "challenge_description": "Specific instructions on what to do. 1-2 sentences.",
-                "difficulty": "Easy" 
+                "challenge_title": "Quest Name (Max 20 chars)",
+                "challenge_description": "Specific action instructions. 1-2 sentences.",
+                "duration_minutes": <int>,
+                "difficulty": "<Easy|Medium|Hard>",
+                "day_offset": <int> // 0 for today, 1 for tomorrow, etc.
             }
-        ]
+        ],
+        "error_message": null // or string if invalid
     }
-    Difficulty levels allowed: "Easy", "Medium", "Hard".
     """
     
     user_prompt = f"""
@@ -351,29 +405,10 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     - **History:** {json.dumps(sanitized_history) if sanitized_history else "New Player"}
 
     **MISSION REQUEST:**
-    Generate a number of mini-challenge(s) corresponding to the days the user is free in during the week for this goal, if not provided generate for one week. 
-
-    **GUIDELINES:**
-    1. **Relevance:** The challenge must directly help achieve the goal.
-    2. **Progression:** If the user has a history, make this challenge slightly different or harder than the last one.
-    3. **Format:**
-    - Title: Short, punchy, and gamified.
-    - Description: 1 or 2 bullet points explaining exactly what to do.
-    - Duration: Between 5 and 15 minutes.
-    - Difficulty: Based on the user's level ({sanitized_level}).
-
-    **REQUIRED JSON RESPONSE:**
-    {{
-    "challenges_count": <integer>,
-    "challenges_list": [
-        {{
-        "challenge_title": "<string>",
-        "challenge_description": "<string>",
-        "duration_minutes": <int>,
-        "difficulty": "<Easy/Medium/Hard>"
-        }}
-    ]
-    }}
+    Generate a quest line starting from today.
+    1. **Relevance:** Directly help achieve the goal.
+    2. **Progression:** If history exists, increase difficulty slightly.
+    3. **Format:** Punchy titles, clear bullet points.
     """
 
     try:
