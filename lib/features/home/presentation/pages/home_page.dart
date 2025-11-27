@@ -64,6 +64,11 @@ class DailyTask {
   }
 }
 
+enum _TaskAction {
+  replan,
+  reportHarmful,
+}
+
 /// Main application page shown after authentication.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -108,11 +113,18 @@ class _HomePageState extends State<HomePage> {
   ImageProvider? _profileImage;
   bool _isBuildingPlan = false;
   bool _initializedFromRoute = false;
+  List<String> _goalSuggestions = buildGoalSuggestions(const []);
+  bool _loadingSuggestions = false;
+
   bool _isFeedbackOpen = false;
   DailyTask? _feedbackTask;
   String _feedbackText = '';
-  List<String> _goalSuggestions = buildGoalSuggestions(const []);
-  bool _loadingSuggestions = false;
+
+  bool _isReplanOpen = false;
+  DailyTask? _replanTask;
+  String _replanText = '';
+
+  bool _isReplanningTask = false;
 
   @override
   void initState() {
@@ -321,58 +333,6 @@ class _HomePageState extends State<HomePage> {
         () => null,
       );
     }
-  }
-
-  void _seedMedalsFromCompletions() {
-    if (_session == null) {
-      return;
-    }
-    _completedTasksByDay.forEach((date, completed) {
-      final total = _totalTasksForDay(date);
-      final medal = completed == null || total == 0
-          ? MedalType.none
-          : medalForProgress(completed: completed, total: total);
-      _medalRepository.setMedalForDay(date, medal);
-    });
-  }
-
-  Future<void> _loadPersistedTaskCompletions() async {
-    final session = await _ensureSession();
-    if (session == null) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _taskStatusesByDay.clear();
-        _tasks = _buildTasksForDay(_selectedDay);
-        _completedTasksByDay = _completedTasksByDay.map((date, value) {
-          return MapEntry(date, value == null ? null : 0);
-        });
-        _seedMedalsFromCompletions();
-      });
-      return;
-    }
-    final stored = await _taskCompletionStorage.loadMonth(
-      _today,
-      session.username,
-    );
-    if (!mounted || stored.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      stored.forEach((date, tasks) {
-        final normalized = dateOnly(date);
-        final taskMap = Map<String, bool>.from(tasks);
-        _taskStatusesByDay[normalized] = taskMap;
-        if (!normalized.isAfter(_today)) {
-          final completedCount = taskMap.values.where((value) => value).length;
-          _completedTasksByDay[normalized] = completedCount;
-        }
-      });
-      _tasks = _buildTasksForDay(_selectedDay);
-      _seedMedalsFromCompletions();
-    });
   }
 
   Future<void> _loadProfileImage() async {
@@ -751,6 +711,48 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _openTaskActions(DailyTask task, Offset globalPosition) async {
+    final action = await showMenu<_TaskAction>(
+      context: context,
+      color: Colors.white,
+      elevation: 8,
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
+      ),
+      items: [
+        PopupMenuItem<_TaskAction>(
+          value: _TaskAction.replan,
+          child: _TaskMenuItemLabel(
+            icon: Icons.edit_outlined,
+            label: 'Replan this task',
+          ),
+        ),
+        PopupMenuItem<_TaskAction>(
+          value: _TaskAction.reportHarmful,
+          child: _TaskMenuItemLabel(
+            icon: Icons.flag_outlined,
+            label: 'Report harmful response',
+            isDestructive: true,
+          ),
+        ),
+      ],
+    );
+
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case _TaskAction.replan:
+        _openReplanForTask(task);     // 👈 il tuo popup “replan”
+        break;
+      case _TaskAction.reportHarmful:
+        _openFeedbackForTask(task);   // 👈 popup harmful che hai già
+        break;
+    }
+  }
+
   void _openFeedbackForTask(DailyTask task) {
     setState(() {
       _feedbackTask = task;
@@ -824,6 +826,68 @@ class _HomePageState extends State<HomePage> {
             duration: Duration(milliseconds: 1500),
           ),
         );
+    }
+  }
+
+
+
+  void _openReplanForTask(DailyTask task) {
+    setState(() {
+      _replanTask = task;
+      _replanText = '';
+      _isReplanOpen = true;
+    });
+  }
+
+  void _closeReplan() {
+    setState(() {
+      _isReplanOpen = false;
+      _replanTask = null;
+      _replanText = '';
+    });
+  }
+
+  void _submitReplan(String text) {
+    final task = _replanTask;
+    final trimmed = text.trim();
+
+    _closeReplan();
+
+    if (task == null || trimmed.isEmpty) {
+      return;
+    }
+
+    // 👇 mostra il riquadro con la gif
+    setState(() {
+      _isReplanningTask = true;
+    });
+
+    // per ora simuliamo una chiamata async; poi qui ci metterai la tua API
+    unawaited(_simulateReplan(task, trimmed));
+  }
+
+  Future<void> _simulateReplan(DailyTask task, String request) async {
+    try {
+      // TODO: sostituisci con la vera chiamata al backend
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Thanks! We\'ll use this to improve your future tasks 💡',
+            ),
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isReplanningTask = false; // 👈 nascondi il riquadro
+      });
     }
   }
 
@@ -1073,7 +1137,7 @@ class _HomePageState extends State<HomePage> {
                 _HabitGrid(
                   tasks: _tasks,
                   onTaskTap: _toggleTask,
-                  onTaskLongPress: _openFeedbackForTask,
+                  onTaskLongPress: _openTaskActions,
                 ),
                 const SizedBox(height: 120),
               ],
@@ -1215,9 +1279,25 @@ class _HomePageState extends State<HomePage> {
               onSubmit: _submitFeedback,
             ),
 
+          // 6-ter) overlay replan task
+          if (_isReplanOpen && _replanTask != null)
+            _TaskReplanOverlay(
+              task: _replanTask!,
+              initialText: _replanText,
+              onChanged: (value) {
+                setState(() => _replanText = value);
+              },
+              onClose: _closeReplan,
+              onSubmit: _submitReplan,
+            ),
+
           // 7) overlay di loading AI
-          if (_isBuildingPlan || _isFetchingPlan)
-            const _BuildingPlanOverlay(),
+          if (_isBuildingPlan || _isFetchingPlan || _isReplanningTask)
+            _BuildingPlanOverlay(
+              message: _isReplanningTask
+                  ? 'The AI is\nupdating this task ...'
+                  : 'The AI is\nbuilding your plan ...',
+            ),
         ],
       ),
     );
@@ -1290,6 +1370,7 @@ class _Header extends StatelessWidget {
           onTap: onProfileTap,
           isLeft: true,
           asset: 'assets/icons/profile_icon.png',
+          image: profileImage,
         ),
 
         // centro flessibile
@@ -1347,7 +1428,7 @@ class _SidePillButton extends StatelessWidget {
         width: width,
         height: 56,
         decoration: BoxDecoration(
-          color: const Color(0xFFB3B3B3), // ✅ grigio corretto
+          color: const Color(0xFFB3B3B3),
           borderRadius: BorderRadius.horizontal(
             left: isLeft ? Radius.zero : const Radius.circular(28),
             right: isLeft ? const Radius.circular(28) : Radius.zero,
@@ -1361,11 +1442,21 @@ class _SidePillButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: Image.asset(
-          asset!,          // ✅ ora carichi sempre il PNG
-          width: 40,
-          height: 40,
-          fit: BoxFit.contain,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: image != null
+              ? Image(
+            image: image!,
+            width: 40,
+            height: 40,
+            fit: BoxFit.cover,   // riempie bene il cerchietto
+          )
+              : Image.asset(
+            asset!,             // fallback icona PNG
+            width: 40,
+            height: 40,
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );
@@ -1870,7 +1961,7 @@ class _HabitGrid extends StatelessWidget {
 
   final List<DailyTask> tasks;
   final ValueChanged<String> onTaskTap;
-  final ValueChanged<DailyTask> onTaskLongPress;
+  final void Function(DailyTask, Offset) onTaskLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1907,7 +1998,7 @@ class _HabitCard extends StatelessWidget {
 
   final DailyTask task;
   final ValueChanged<String> onTap;
-  final ValueChanged<DailyTask>? onLongPress;
+  final void Function(DailyTask, Offset)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1924,7 +2015,9 @@ class _HabitCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () => onTap(task.id),
-      onLongPress: () => onLongPress?.call(task),
+      onLongPressStart: (details) {
+        onLongPress?.call(task, details.globalPosition);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
@@ -2159,17 +2252,7 @@ class _AddHabitOverlayContent extends StatelessWidget {
   final List<String> suggestions;
   final bool loadingSuggestions;
 
-  void _applySuggestion(String text) {
-    controller.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
 
-  void _handleSuggestionTap(String text) {
-    _applySuggestion(text);
-    onSubmit(text);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2394,7 +2477,9 @@ class _SuggestionChip extends StatelessWidget {
 
 
 class _BuildingPlanOverlay extends StatelessWidget {
-  const _BuildingPlanOverlay();
+  const _BuildingPlanOverlay({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -2409,13 +2494,10 @@ class _BuildingPlanOverlay extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(28),
-
-              // ⭐️ NUOVO ➜ leggero bordino nero
               border: Border.all(
                 color: Colors.black.withOpacity(1),
                 width: 1.5,
               ),
-
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.15),
@@ -2424,7 +2506,6 @@ class _BuildingPlanOverlay extends StatelessWidget {
                 ),
               ],
             ),
-
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2438,7 +2519,7 @@ class _BuildingPlanOverlay extends StatelessWidget {
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 180),
                   child: Text(
-                    'The AI is\nbuilding your plan ...',
+                    message, // 👈 ora usa il testo passato
                     style: textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: Colors.black,
@@ -2717,18 +2798,300 @@ class _FeedbackChip extends StatelessWidget {
   }
 }
 
-class _AiPlanPage extends StatelessWidget {
-  const _AiPlanPage({super.key});
+
+class _TaskMenuItemLabel extends StatelessWidget {
+  const _TaskMenuItemLabel({
+    required this.icon,
+    required this.label,
+    this.isDestructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isDestructive;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Your plan'),
-      ),
-      body: const Center(
-        child: Text('Here we will show the generated plan.'),
+    final Color accentStart = const Color(0xFFFF9A9E);
+    final Color accentEnd   = const Color(0xFFFFCF71);
+
+    final Color textColor =
+    isDestructive ? Colors.red.shade700 : Colors.black;
+
+    return Row(
+      children: [
+        // piccolo pallino con gradiente dell’app
+        Container(
+          width: 28,
+          height: 28,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'FiraCode',
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: textColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+
+
+class _TaskReplanOverlay extends StatefulWidget {
+  const _TaskReplanOverlay({
+    required this.task,
+    required this.initialText,
+    required this.onChanged,
+    required this.onSubmit,
+    required this.onClose,
+  });
+
+  final DailyTask task;
+  final String initialText;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onClose;
+
+  @override
+  State<_TaskReplanOverlay> createState() => _TaskReplanOverlayState();
+}
+
+class _TaskReplanOverlayState extends State<_TaskReplanOverlay> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _controller.addListener(_handleTextChanged);
+  }
+
+  void _handleTextChanged() {
+    widget.onChanged(_controller.text);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleTextChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onClose,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.55),
+          child: Center(
+            child: GestureDetector(
+              onTap: () {}, // blocca il tap sul contenuto
+              child: Container(
+                width: 340,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 20,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Replan this task',
+                      style: TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0x99000000),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 🔹 TEXTFIELD con bordino gradient
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          width: 2,
+                          color: Colors.transparent,
+                        ),
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFFFF9A9E),
+                            Color(0xFFFFCF71),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Container(
+                        margin: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: _controller,
+                          autofocus: true,
+                          maxLines: 4,
+                          minLines: 2,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            hintText:
+                            'What would you change in this task? (timing, difficulty, content...)',
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(
+                              fontFamily: 'FiraCode',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                              color: Color(0x99000000),
+                            ),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                          style: const TextStyle(
+                            fontFamily: 'FiraCode',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            height: 1.3,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // quick chips
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _FeedbackChip(
+                          label: 'Too easy',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Too easy]'.trim();
+                          },
+                        ),
+                        _FeedbackChip(
+                          label: 'Too hard',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Too hard]'.trim();
+                          },
+                        ),
+                        _FeedbackChip(
+                          label: 'Wrong timing',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Wrong timing]'.trim();
+                          },
+                        ),
+                        _FeedbackChip(
+                          label: 'Not relevant',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Not relevant]'.trim();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // bottone invio
+                    Align(
+                      alignment: Alignment.center,
+                      child: GestureDetector(
+                        onTap: () => widget.onSubmit(_controller.text),
+                        child: Container(
+                          width: 100,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.18),
+                                blurRadius: 10,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: SvgPicture.asset(
+                            'assets/icons/send_icon.svg',
+                            width: 32,
+                            height: 32,
+                            colorFilter: const ColorFilter.mode(
+                              Colors.white,
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
+
