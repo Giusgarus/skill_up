@@ -676,6 +676,17 @@ class _HomePageState extends State<HomePage> {
   int get _completionPercent => (_completionRatio * 100).round();
 
   int get _currentStreak {
+    // 0) Se l'utente non ha mai guadagnato alcuna medaglia (tutte none),
+    // lo streak è 0.
+    final hasAnyMedal = _medalRepository
+        .allMedals()
+        .values
+        .any((m) => m != MedalType.none);
+
+    if (!hasAnyMedal) {
+      return 0;
+    }
+
     int streak = 0;
     DateTime day = dateOnly(_today);
 
@@ -689,7 +700,7 @@ class _HomePageState extends State<HomePage> {
       final medal = _medalRepository.medalForDay(day);
 
       if (medal == MedalType.none) {
-        break; // appena troviamo un giorno "fallito" lo streak si ferma
+        break;
       }
 
       streak++;
@@ -2076,6 +2087,42 @@ class _HabitCard extends StatelessWidget {
   final ValueChanged<String> onTap;
   final TaskLongPressCallback? onLongPress;
 
+  void _showDetails(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Text(
+            task.title,
+            style: const TextStyle(
+              fontFamily: 'FiraCode',
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Text(
+              task.description.replaceAll('\n', ' '),
+              style: const TextStyle(
+                fontFamily: 'FiraCode',
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isCompleted = task.isCompleted;
@@ -2107,12 +2154,11 @@ class _HabitCard extends StatelessWidget {
             ),
           ],
         ),
-        // importantissimo: riempi e poi gestisci lo spazio dentro
         child: Column(
           children: [
             const SizedBox(height: 8),
 
-            // rettangolino titolo
+            // 🔵 rettangolino titolo (identico a prima)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 8),
               padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
@@ -2135,7 +2181,7 @@ class _HabitCard extends StatelessWidget {
               ),
             ),
 
-            // questo Expanded prende lo spazio che resta e NON fa sforare
+            // 🔵 spazio testo — identico a prima
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -2159,16 +2205,20 @@ class _HabitCard extends StatelessWidget {
               ),
             ),
 
-            // icona in basso SEMPRE visibile
+            // 🔵 icona expand in basso a destra (NUOVA)
             Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Image.asset(
-                isCompleted
-                    ? 'assets/icons/task_done_icon.png'
-                    : 'assets/icons/task_not_done_icon.png',
-                width: 38,
-                height: 38,
-                fit: BoxFit.contain,
+              padding: const EdgeInsets.only(right: 10, bottom: 10),
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showDetails(context),
+                  child: const Icon(
+                    Icons.open_in_full,
+                    size: 20,
+                    color: Colors.black87,
+                  ),
+                ),
               ),
             ),
           ],

@@ -28,6 +28,9 @@ class _LoginPageState extends State<LoginPage> {
   final _sessionStorage = AuthSessionStorage();
   bool _loading = false;
 
+  /// 👁️ stesso pattern della RegisterPage
+  bool _obscurePassword = true;
+
   @override
   void dispose() {
     _userC.dispose();
@@ -74,7 +77,8 @@ class _LoginPageState extends State<LoginPage> {
         final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
         messenger.showSnackBar(
           SnackBar(
-            content: Text(result.errorMessage ?? 'Login failed. Please retry.'),
+            content:
+            Text(result.errorMessage ?? 'Login failed. Please retry.'),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -124,9 +128,24 @@ class _LoginPageState extends State<LoginPage> {
             PillTextField(
               controller: _pwdC,
               hint: 'password',
-              obscureText: true,
+              obscureText: _obscurePassword,
               validator: (v) =>
               (v == null || v.isEmpty) ? 'Password required' : null,
+              // 👇 aggiunto occhio come in RegisterPage
+              suffix: IconButton(
+                tooltip:
+                _obscurePassword ? 'Show password' : 'Hide password',
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off
+                      : Icons.visibility,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+              ),
             ),
             const SizedBox(height: 22),
             RoundArrowButton(
