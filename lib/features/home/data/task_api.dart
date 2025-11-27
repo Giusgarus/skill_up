@@ -90,11 +90,17 @@ class PlanResult {
     this.expectedCompletion,
     this.prompt,
     this.response,
+    this.statusCode,
   }) : errorMessage = null,
        error = null,
        stackTrace = null;
 
-  const PlanResult.error(this.errorMessage, {this.error, this.stackTrace})
+  const PlanResult.error(
+    this.errorMessage, {
+    this.error,
+    this.stackTrace,
+    this.statusCode,
+  })
     : planId = null,
       tasks = const [],
       createdAt = null,
@@ -111,6 +117,7 @@ class PlanResult {
   final String? errorMessage;
   final Object? error;
   final StackTrace? stackTrace;
+  final int? statusCode;
 
   bool get isSuccess => errorMessage == null && planId != null;
 }
@@ -276,6 +283,7 @@ class TaskApi {
           expectedCompletion: expected ?? _maxDeadline(allTasks),
           prompt: prompt,
           response: responsePayload,
+          statusCode: response.statusCode,
         );
       }
       String? message;
@@ -285,6 +293,7 @@ class TaskApi {
       }
       return PlanResult.error(
         message ?? 'No active plan found (${response.statusCode}).',
+        statusCode: response.statusCode,
       );
     } on SocketException catch (_) {
       return const PlanResult.error('No internet connection.');
@@ -314,28 +323,38 @@ class TaskApi {
         final body = _decodeBody(response.body);
         final status = body['status'];
         if (status is bool && status == false) {
-          final msg = body['detail'] ?? body['error'] ?? body['message'];
+          final msg = body['detail'] ?? body['error'] ?? body['message'] ?? body['error_message'];
           return PlanResult.error(
             (msg is String ? msg : null) ?? 'Plan creation was rejected.',
+            statusCode: response.statusCode,
           );
         }
         final planId = _toInt(body['plan_id']);
         final tasksRaw =
             body['tasks'] ?? (body['data'] is Map ? (body['data'] as Map)['tasks'] : null);
         final tasks = _parseTasks(tasksRaw, planId: planId);
+        final llmError = body['error_message'] as String?;
 
         // if response is incomplete but the server likely created the plan,
         // fall back to querying active plans to recover the data
         if (planId == null || tasks.isEmpty) {
+          if (llmError != null && llmError.trim().isNotEmpty) {
+            return PlanResult.error(
+              llmError,
+              statusCode: response.statusCode,
+            );
+          }
           final recovered = await fetchActivePlan(token: token);
           if (recovered.isSuccess) {
             return recovered;
           }
           return PlanResult.error(
-            recovered.errorMessage ??
+            llmError ??
+                recovered.errorMessage ??
                 (planId == null
                     ? 'Missing plan id in response.'
                     : 'No tasks returned for this plan.'),
+            statusCode: recovered.statusCode,
           );
         }
 
@@ -346,15 +365,20 @@ class TaskApi {
           createdAt: DateTime.now(),
           prompt: body['prompt'] as String?,
           response: body['response'],
+          statusCode: response.statusCode,
         );
       }
       String? message;
       if (response.body.isNotEmpty) {
         final body = _decodeBody(response.body);
-        message = body['detail'] as String? ?? body['error'] as String?;
+        message = body['detail'] as String? ??
+            body['error'] as String? ??
+            body['message'] as String? ??
+            body['error_message'] as String?;
       }
       return PlanResult.error(
         message ?? 'Failed to create a plan (${response.statusCode}).',
+        statusCode: response.statusCode,
       );
     } on SocketException catch (_) {
       return const PlanResult.error('No internet connection.');
@@ -394,15 +418,20 @@ class TaskApi {
           createdAt: _parseDate(body['created_at']) ?? DateTime.now(),
           prompt: body['prompt'] as String?,
           response: body['response'],
+          statusCode: response.statusCode,
         );
       }
       String? message;
       if (response.body.isNotEmpty) {
         final body = _decodeBody(response.body);
-        message = body['detail'] as String? ?? body['error'] as String?;
+        message = body['detail'] as String? ??
+            body['error'] as String? ??
+            body['message'] as String? ??
+            body['error_message'] as String?;
       }
       return PlanResult.error(
         message ?? 'Failed to create preset plan (${response.statusCode}).',
+        statusCode: response.statusCode,
       );
     } on SocketException catch (_) {
       return const PlanResult.error('No internet connection.');
@@ -481,13 +510,11 @@ class TaskApi {
     required String token,
     required int planId,
     required int taskId,
-    String medalTaken = 'None',
   }) async {
     final payload = jsonEncode({
       'token': token,
       'plan_id': planId,
       'task_id': taskId,
-      'medal_taken': medalTaken,
     });
     try {
       final response = await _client.post(

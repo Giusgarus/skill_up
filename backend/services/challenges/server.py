@@ -63,7 +63,10 @@ class Plan(User):
 
 class Task(Plan):
     task_id: int = Field(..., description="Identifier of the task inside the plan.")
-    medal_taken: Optional[str] = Field("None", description="Medal assigned on completion, if any.")
+    medal_taken: Optional[str] = Field(
+        None,
+        description="Deprecated: medal is computed server-side based on daily completion.",
+    )
 
 class Report(Task):
     report: str = Field(..., description="User feedback text for the completed task.")
@@ -116,13 +119,103 @@ class ErrorResponse(BaseModel):
 # ===============================
 router = APIRouter(prefix="/services/challenges", tags=["Challenges"])
 
+def _normalize_tasks_or_throw(
+    raw_tasks: Any,
+    fallback_error: str | None = None,
+) -> List[tuple[str, Dict[str, Any]]]:
+    """Validate and normalize a raw tasks payload into a list of (date, task) tuples."""
+    try:
+        tasks_dict = dict(raw_tasks or {})
+    except Exception as exc:  # pragma: no cover - defensive against malformed payloads
+        logger.error("Invalid tasks payload from LLM: %s", exc)
+        raise HTTPException(status_code=502, detail="Invalid tasks payload while creating the plan")
+
+    # Remove potential Mongo metadata and early-exit on empty payloads
+    tasks_dict.pop("_id", None)
+    if not tasks_dict:
+        raise HTTPException(status_code=502, detail="Plan generation returned no tasks.")
+
+    normalized: List[tuple[str, Dict[str, Any]]] = []
+    for date, task in tasks_dict.items():
+        if not isinstance(task, dict):
+            logger.warning("Skipping task for date %s because payload is not a dict", date)
+            continue
+        try:
+            timing.from_iso_to_datetime(date)  # validate date format
+        except Exception:
+            logger.warning("Skipping task with invalid date key %s", date)
+            continue
+
+        title = (task.get("title") or "").strip()
+        description = (task.get("description") or "").strip()
+        if not title or not description:
+            logger.warning("Skipping task for %s because title/description is missing", date)
+            continue
+
+        difficulty_raw = task.get("difficulty", "easy")
+        normalized.append(
+            (
+                date,
+                {
+                    **task,
+                    "title": title,
+                    "description": description,
+                    "difficulty": difficulty_raw,
+                },
+            )
+        )
+
+    if not normalized:
+        raise HTTPException(
+            status_code=502,
+            detail=fallback_error or "Plan generation returned no valid tasks.",
+        )
+    return normalized
+
+
+def _medal_grade(completed: int, total: int) -> str:
+    """Compute medal grade (G/S/B/None) based on completion ratio."""
+    if total <= 0 or completed <= 0:
+        return "None"
+    ratio = completed / total
+    if ratio >= 1.0:
+        return "G"
+    if ratio >= 0.66:
+        return "S"
+    if ratio >= 0.33:
+        return "B"
+    return "None"
+
+
+def _day_from_iso(value: Optional[str]) -> str:
+    try:
+        return timing.from_iso_to_datetime(value).date().isoformat()
+    except Exception:
+        return timing.now().date().isoformat()
+
+
+def _extract_error_message(payload: Dict[str, Any] | None) -> str | None:
+    if not payload:
+        return None
+    if isinstance(payload.get("error_message"), str):
+        return payload.get("error_message")
+    if isinstance(payload.get("response"), dict):
+        resp = payload.get("response")
+        if isinstance(resp.get("error_message"), str):
+            return resp.get("error_message")
+    return None
+
+
 def _insert_plan_for_user(
     user_id: str,
     tasks_dict: Dict[str, Dict[str, Any]],
     prompt_text: str | None = None,
     response_payload: Any = None,
+    fallback_error: str | None = None,
 ) -> Dict[str, Any]:
     """Create plan and tasks for a user given a tasks dict (date -> task)."""
+    normalized_tasks = _normalize_tasks_or_throw(tasks_dict, fallback_error)
+
     # 3. Update users (increment plan counter and track active plan)
     user_doc = db.find_one(
         table_name="users",
@@ -151,7 +244,7 @@ def _insert_plan_for_user(
 
     difficulty_values: List[int] = [
         CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)  # default difficulty
-        for _, task in tasks_dict.items()
+        for _, task in normalized_tasks
     ]
 
     res = db.insert(
@@ -159,17 +252,17 @@ def _insert_plan_for_user(
         record={
             "plan_id": plan_id,
             "user_id": user_id,
-            "n_tasks": len(tasks_dict),  # current tasks count
+            "n_tasks": len(normalized_tasks),  # current tasks count
             "n_tasks_done": 0,
             "responses": [response_payload],
             "prompts": [prompt_text],
             "deleted": False,
             "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
             "created_at": timing.now_iso(),
-            "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
+            "expected_complete": timing.get_last_date([date for date, _ in normalized_tasks]),
             "n_replans": 0,
-            "tasks": [{date: [task] for date, task in tasks_dict.items()}],
-            "next_task_id": len(tasks_dict), # keep a running task id counter for uniqueness across replans
+            "tasks": [{date: [task] for date, task in normalized_tasks}],
+            "next_task_id": len(normalized_tasks), # keep a running task id counter for uniqueness across replans
             "completed_at": None,
         },
     )
@@ -180,8 +273,7 @@ def _insert_plan_for_user(
 
     # Create tasks
     tasks: List[Dict[str, Any]] = []
-    for i, (date, task) in enumerate(tasks_dict.items()):
-        timing.from_iso_to_datetime(date) # validate the date
+    for i, (date, task) in enumerate(normalized_tasks):
         difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)
         tasks.append({
             "task_id": i,
@@ -240,7 +332,7 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
     description=(
         "Marks a task as completed and updates user score, plan stats, and leaderboard.  \n"
         "- Validates session token and plan/task identifiers.  \n"
-        "- Updates completion counters and medals when provided.  \n"
+        "- Updates completion counters, medals, and leaderboard automatically.  \n"
         "- Keeps the leaderboard sorted by score."
     ),
     operation_id="completeTask",
@@ -253,7 +345,6 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
         405: {"model": ErrorResponse, "description": "Plan not found."},
         406: {"model": ErrorResponse, "description": "User not found after update."},
         407: {"model": ErrorResponse, "description": "Invalid user projection after update."},
-        408: {"model": ErrorResponse, "description": "Invalid medal provided."},
     },
 )
 async def task_done(payload: Task) -> dict:
@@ -279,7 +370,7 @@ async def task_done(payload: Task) -> dict:
             "completed_at": None,
         },
         values_dict={"$set": {"completed_at": timing.now_iso()}},
-        projection={"_id": False, "score": True},
+        projection={"_id": False, "score": True, "deadline_date": True},
         return_policy=ReturnDocument.AFTER,
     )
     if not task:
@@ -363,21 +454,46 @@ async def task_done(payload: Task) -> dict:
             status_code=407, detail="Invalid projection after updating user"
         )
     
-    # 4. Update medals
-    if payload.medal_taken != "None":
-        day_str = timing.now().date().isoformat()
-        res = db.update_one(
+    # 4. Update medals (computed server-side)
+    day_str = _day_from_iso(task.get("deadline_date"))
+    try:
+        tasks_same_day = db.find_many(
+            table_name="tasks",
+            filters={
+                "user_id": user_id,
+                "deleted": False,
+                "deadline_date": {"$regex": f"^{day_str}"},
+            },
+            projection={"_id": False, "completed_at": True, "task_id": True},
+        )
+        tasks_same_day = tasks_same_day or []
+        total = len(tasks_same_day)
+        completed = len([t for t in tasks_same_day if t.get("completed_at") is not None])
+        present = any(t.get("task_id") == task_id for t in tasks_same_day)
+        if not present:
+            total += 1  # include the task we just completed
+            completed += 1
+        if total == 0:
+            return {"status": True, "score": user["score"]}
+        medal_grade = _medal_grade(completed, total)
+
+        # remove any stale entry for this task, then append if a medal is earned
+        db.update_one(
             table_name="medals",
             keys_dict={"user_id": user_id, "timestamp": day_str},
-            values_dict={
-                "$push": {
-                    "medal": {"grade": payload.medal_taken, "task_id": task_id}
-                }
-            },
-            upsert=True,
+            values_dict={"$pull": {"medal": {"task_id": task_id}}},
         )
-        if not (res.matched_count or res.upserted_id):
-            raise HTTPException(status_code=408, detail="Invalid medal passed")
+        if medal_grade != "None":
+            db.update_one(
+                table_name="medals",
+                keys_dict={"user_id": user_id, "timestamp": day_str},
+                values_dict={
+                    "$push": {"medal": {"grade": medal_grade, "task_id": task_id}}
+                },
+                upsert=True,
+            )
+    except Exception as exc:
+        logger.error("Failed to compute/update medal for user %s: %s", user["username"], exc)
 
     # 5. Update leaderboard (split pull/push to avoid Mongo path conflicts)
     try:
@@ -453,7 +569,7 @@ async def task_undo(payload: Task) -> dict:
             "plan_id": plan_id,
             "deleted": False,
         },
-        projection={"_id": False, "score": True, "completed_at": True},
+        projection={"_id": False, "score": True, "completed_at": True, "deadline_date": True},
     )
     if not task_doc or task_doc.get("completed_at") is None:
         raise HTTPException(status_code=404, detail="Task not completed or not found")
@@ -522,11 +638,7 @@ async def task_undo(payload: Task) -> dict:
         raise HTTPException(status_code=407, detail="Invalid projection after updating user")
 
     # 4. Remove medal entry for this task/day (best-effort)
-    try:
-        completion_day = (timing.from_iso_to_datetime(task_doc["completed_at"]).date().isoformat())
-    except Exception:
-        completion_day = timing.now().date().isoformat()
-
+    completion_day = _day_from_iso(task_doc.get("deadline_date"))
     try:
         db.update_one(
             table_name="medals",
@@ -650,99 +762,21 @@ async def get_llm_response(payload: Goal) -> dict:
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
 
-    tasks_dict: Dict[str, Dict[str, Any]] = dict(llm_resp["result"]["tasks"])
-    tasks_dict.pop("_id", None)  # immediately
-
-    # 3. Update users (increment plan counter and track active plan)
-    user_doc = db.find_one(
-        table_name="users",
-        filters={"user_id": user_id},
-        projection={"_id": False, "n_plans": True},
-    )
-    if user_doc is None or "n_plans" not in user_doc:
+    result_payload = llm_resp["result"]
+    tasks_payload = result_payload.get("tasks")
+    if not tasks_payload:
         raise HTTPException(
-            status_code=503,
-            detail="Invalid user_id or n_plans missing while creating plan",
+            status_code=502,
+            detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.",
         )
-
-    plan_id = int(user_doc.get("n_plans", 0) or 0) + 1
-    update_user_res = db.update_one(
-        table_name="users",
-        keys_dict={"user_id": user_id},
-        values_dict={
-            "$set": {"n_plans": plan_id},
-            "$addToSet": {"active_plans": plan_id},
-        },
+    fallback_error = _extract_error_message(result_payload)
+    return _insert_plan_for_user(
+        user_id=user_id,
+        tasks_dict=tasks_payload,
+        prompt_text=result_payload.get("prompt"),
+        response_payload=result_payload.get("response"),
+        fallback_error=fallback_error,
     )
-    if update_user_res.matched_count == 0:
-        raise HTTPException(status_code=503, detail="Invalid user_id while creating plan")
-
-    # 4. Create plan
-    difficulty_values: List[int] = [
-        CHALLENGES_DIFFICULTY_MAP.get(
-            str(task["difficulty"]).lower(), 1  # default difficulty
-        )
-        for _, task in tasks_dict.items()
-    ]
-    res = db.insert(
-        table_name="plans",
-        record={
-            "plan_id": plan_id,
-            "user_id": user_id,
-            "n_tasks": len(tasks_dict),  # current tasks count
-            "n_tasks_done": 0,
-            "responses": [llm_resp["result"].get("response")],
-            "prompts": [llm_resp["result"].get("prompt")],
-            "deleted": False,
-            "difficulty": round(mean(difficulty_values)) if difficulty_values else 1,
-            "created_at": timing.now_iso(),
-            "expected_complete": timing.get_last_date(list(tasks_dict.keys())),
-            "n_replans": 0,
-            "tasks": [{date: [task] for date, task in tasks_dict.items()}],
-            "next_task_id": len(tasks_dict), # keep a running task id counter for uniqueness across replans
-            "completed_at": None,
-        },
-    )
-    if not res:
-        raise HTTPException(status_code=505, detail="Database error while creating plan")
-
-    # 5. Create tasks
-    tasks: List[Dict[str, Any]] = []
-    for i, (date, task) in enumerate(tasks_dict.items()):
-        # validate/parse date
-        timing.from_iso_to_datetime(date)
-
-        diff_key = str(task["difficulty"]).lower()
-        difficulty = CHALLENGES_DIFFICULTY_MAP.get(diff_key, 1)
-        score = difficulty * 10
-
-        tasks.append(
-            {
-                "task_id": i,
-                "plan_id": plan_id,
-                "user_id": user_id,
-                "title": task["title"],
-                "description": task["description"],
-                "difficulty": difficulty,
-                "score": score,
-                "deadline_date": date,
-                "completed_at": None,
-                "deleted": False,
-            }
-        )
-    db.insert_many("tasks", tasks)
-
-    # 6. Prepare the return (strip any _id inside tasks_dict if present)
-    if "_id" in tasks_dict:
-        del tasks_dict["_id"]
-
-    return {
-        "status": True,
-        "plan_id": plan_id,
-        "prompt": llm_resp["result"].get("prompt"),
-        "response": llm_resp["result"].get("response"),
-        "tasks": tasks_dict,
-    }
 
 
 # ==========================
@@ -999,7 +1033,15 @@ async def replan(payload: Replan) -> dict:
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
 
-    new_tasks_dict: Dict[str, Dict[str, Any]] = dict(llm_resp["result"]["tasks"])
+    result_payload = llm_resp.get("result") or {}
+    tasks_payload = result_payload.get("tasks")
+    if not tasks_payload:
+        raise HTTPException(
+            status_code=502,
+            detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.",
+        )
+    fallback_error = _extract_error_message(result_payload)
+    normalized_tasks = _normalize_tasks_or_throw(tasks_payload, fallback_error)
 
     # 4. Mark existing tasks as deleted
     db.update_many_filtered(
@@ -1013,8 +1055,7 @@ async def replan(payload: Replan) -> dict:
 
     # 6. Create the new tasks
     tasks: List[Dict[str, Any]] = []
-    for i, (date, task) in enumerate(new_tasks_dict.items()):
-        timing.from_iso_to_datetime(date)
+    for i, (date, task) in enumerate(normalized_tasks):
         difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)
         tasks.append(
             {
@@ -1040,17 +1081,15 @@ async def replan(payload: Replan) -> dict:
             "$inc": {"n_replans": 1},
             "$set": {
                 # replan defines a NEW current set of tasks
-                "n_tasks": len(new_tasks_dict),
+                "n_tasks": len(normalized_tasks),
                 "n_tasks_done": 0,
                 "completed_at": None,
-                "next_task_id": start_task_id + len(new_tasks_dict),
+                "next_task_id": start_task_id + len(normalized_tasks),
             },
             "$push": {
                 "prompts": llm_resp["result"]["prompt"],
                 "responses": llm_resp["result"]["response"],
-                "tasks": {
-                    date: [task] for date, task in new_tasks_dict.items()
-                },
+                "tasks": {date: [task] for date, task in normalized_tasks},
             },
         },
         return_policy=ReturnDocument.AFTER,

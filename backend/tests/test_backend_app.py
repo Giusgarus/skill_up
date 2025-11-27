@@ -486,7 +486,7 @@ def test_task_done_updates_score_plan_leaderboard_and_medals(backend_app):
 
     response = client.post(
         "/services/challenges/task_done",
-        json={"token": token, "plan_id": 1, "task_id": 0, "medal_taken": "G"},
+        json={"token": token, "plan_id": 1, "task_id": 0},
     )
     if response.status_code != 200:
         tasks_dump = list(db["tasks"].find({"plan_id": 1}))
@@ -585,7 +585,7 @@ def test_task_undo_reverts_progress_and_leaderboard(backend_app):
     ).status_code == 200
     assert client.post(
         "/services/challenges/task_done",
-        json={"token": token, "plan_id": 1, "task_id": 1, "medal_taken": "G"},
+        json={"token": token, "plan_id": 1, "task_id": 1},
     ).status_code == 200
 
     plan_doc = db["plans"].find_one({"plan_id": 1})
