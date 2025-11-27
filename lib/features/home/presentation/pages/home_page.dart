@@ -90,6 +90,8 @@ class _HomePageState extends State<HomePage> {
   bool _profileSyncScheduled = false;
   bool _isFetchingPlan = false;
   String? _planError;
+  bool _showHarmfulPrompt = false;
+  String? _harmfulPromptMessage;
   static const Duration _tokenRetryDelay = Duration(seconds: 12);
   static const String _serverLogoutMessage =
       'Il server ti ha disconnesso. Effettua di nuovo il login per continuare.';
@@ -856,12 +858,6 @@ class _HomePageState extends State<HomePage> {
               token: session.token,
               planId: task.planId,
               taskId: task.remoteTaskId,
-              medalTaken: medalCodeForType(
-                medalForProgress(
-                  completed: _completedForDay(day),
-                  total: _totalTasksForDay(day),
-                ),
-              ),
             )
           : await _taskApi.markTaskUndone(
               token: session.token,
@@ -916,6 +912,8 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _isBuildingPlan = true;
       _planError = null;
+      _showHarmfulPrompt = false;
+      _harmfulPromptMessage = null;
     });
     PlanResult? creationResult;
     try {
@@ -931,14 +929,28 @@ class _HomePageState extends State<HomePage> {
     final freshest = await _waitForPlan(session.token);
     _debugPlanResult('createPlan response', creationResult);
     _debugPlanResult('freshest active plan', freshest);
-    final planToShow = _pickBestPlan(creationResult, freshest);
+    final creationRejected = _isRejectedPlan(creationResult);
+    final planToShow = creationRejected ? null : _pickBestPlan(creationResult, freshest);
 
     if (!mounted) return;
     setState(() {
       _isBuildingPlan = false;
     });
 
-    if (planToShow != null && planToShow.isSuccess && planToShow.planId != null) {
+    if (creationRejected) {
+      final message = _resolveHarmfulPromptMessage(creationResult);
+      setState(() {
+        _harmfulPromptMessage = message;
+        _showHarmfulPrompt = true;
+      });
+      return;
+    }
+
+    final hasPlan =
+        planToShow != null && planToShow.isSuccess && planToShow.planId != null;
+    final hasTasks = hasPlan && planToShow!.tasks.isNotEmpty;
+
+    if (hasPlan && hasTasks) {
       _setPlanData(planToShow.tasks, planToShow.planId!);
       final args = PlanOverviewArgs(
         planId: planToShow.planId!,
@@ -971,9 +983,19 @@ class _HomePageState extends State<HomePage> {
           const SnackBar(content: Text('Plan created successfully.')),
         );
     } else {
-      final message = creationResult?.errorMessage ??
-          freshest.errorMessage ??
-          'Unable to build the plan right now.';
+      if (hasPlan && !hasTasks) {
+        unawaited(
+          _taskApi.deletePlan(
+            token: session.token,
+            planId: planToShow!.planId!,
+          ),
+        );
+      }
+      final message = hasPlan && !hasTasks
+          ? 'The AI did not return any tasks. Please try again.'
+          : creationResult?.errorMessage ??
+              freshest.errorMessage ??
+              'Unable to build the plan right now.';
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(message)));
@@ -990,6 +1012,23 @@ class _HomePageState extends State<HomePage> {
       await Future.delayed(const Duration(milliseconds: 650));
     }
     return last;
+  }
+
+  bool _isRejectedPlan(PlanResult? result) {
+    if (result == null) return false;
+    final message = result.errorMessage?.toLowerCase() ?? '';
+    if (result.statusCode == 502) return true;
+    return message.contains('harmful') ||
+        message.contains('not permitted') ||
+        message.contains('bad gateway') ||
+        message.contains('quest invalid') ||
+        message.contains('rejected');
+  }
+
+  String _resolveHarmfulPromptMessage(PlanResult? result) {
+    return result?.errorMessage?.trim().isNotEmpty == true
+        ? result!.errorMessage!
+        : 'Oops, your request was flagged as harmful or not permitted.';
   }
 
   PlanResult? _pickBestPlan(PlanResult? primary, PlanResult? secondary) {
@@ -1218,6 +1257,18 @@ class _HomePageState extends State<HomePage> {
           // 7) overlay di loading AI
           if (_isBuildingPlan || _isFetchingPlan)
             const _BuildingPlanOverlay(),
+
+          if (_showHarmfulPrompt)
+            _HarmfulPromptBanner(
+              message: _harmfulPromptMessage ??
+                  'Oops, your request was flagged as harmful or not permitted.',
+              onClose: () {
+                setState(() {
+                  _showHarmfulPrompt = false;
+                  _harmfulPromptMessage = null;
+                });
+              },
+            ),
         ],
       ),
     );
@@ -2447,6 +2498,95 @@ class _BuildingPlanOverlay extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HarmfulPromptBanner extends StatelessWidget {
+  const _HarmfulPromptBanner({
+    required this.message,
+    required this.onClose,
+  });
+
+  final String message;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onClose,
+        child: Container(
+          color: Colors.black.withOpacity(0.5),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Material(
+                borderRadius: BorderRadius.circular(22),
+                color: Colors.white,
+                elevation: 10,
+                shadowColor: Colors.black.withOpacity(0.2),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: Color(0xFFD7263D), size: 28),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Request blocked',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        message,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.black87,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: onClose,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'OK',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),

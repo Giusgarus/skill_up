@@ -207,6 +207,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             "response": result,
             "tasks": tasks,
             "n_tasks": len(tasks),
+            "error_message": result.get("error_message"),
         }
         return {"status": True, "result": converted}
 
