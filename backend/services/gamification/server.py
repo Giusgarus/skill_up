@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from typing import Set
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 import backend.db.database as db
 import backend.utils.session as session
 
@@ -22,13 +22,23 @@ ALLOWED_DATA_MEDALS  = _cfg.get("CHALLENGES_ALLOWED_DATA_FIELDS")
 #        Payload Classes
 # =================s=============
 class User(BaseModel):
-    token: str
+    token: str = Field(..., description="User session token (Bearer).")
+
+
+class LeaderboardResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: bool = Field(..., description="Outcome of the request.")
+    leaderboard: list[dict] = Field(..., description="Current leaderboard with username and score.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error detail.")
 
 
 # ===============================
 #        Fast API Router
 # ===============================
-router = APIRouter(prefix="/services/gamification", tags=["gamification"])
+router = APIRouter(prefix="/services/gamification", tags=["Gamification"])
 
 
 
@@ -39,7 +49,20 @@ router = APIRouter(prefix="/services/gamification", tags=["gamification"])
 # ==========================
 #        leaderboard
 # ==========================
-@router.post("/leaderboard", status_code = 200)
+@router.post(
+    "/leaderboard",
+    status_code = 200,
+    summary="Get leaderboard",
+    description=(
+        "Returns the global leaderboard with users and their scores.  \n"
+        "Requires a valid session token to access the leaderboard."
+    ),
+    operation_id="getLeaderboard",
+    response_model=LeaderboardResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+    },
+)
 def get_leaderboard(payload: User) -> dict:
     ok, _ = session.verify_session(payload.token)
     if not ok:

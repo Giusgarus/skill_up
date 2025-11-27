@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from backend.services.notifications import notification as notify
 import backend.db.database as db
 import backend.utils.session as session
@@ -9,19 +9,35 @@ import backend.utils.timing as timing
 
 SUPPORTED_PLATFORMS = {"android", "ios", "macos", "windows", "web"}
 DEFAULT_PLATFORM = "unknown"
-router = APIRouter(prefix="/services/notifications", tags=["notifications"])
+router = APIRouter(prefix="/services/notifications", tags=["Notifications"])
 LOGGER = notify.get_logger()
 
 
 class DeviceRegistration(BaseModel):
-    username: str
-    platform: str = "android"
-    session_token: str
-    device_token: str
+    username: str = Field(..., description="Username that owns the device.")
+    platform: str = Field("android", description="Device platform (android, ios, web, etc.).")
+    session_token: str = Field(..., description="User session token.")
+    device_token: str = Field(..., description="Push token provided by the notification service.")
 
 class ManualNotification(BaseModel):
-    title: Optional[str] = None
-    body: Optional[str] = None
+    title: Optional[str] = Field(None, description="Optional title for the notification.")
+    body: Optional[str] = Field(None, description="Notification body; if omitted it is personalized per user.")
+
+
+class DeviceRegistrationResponse(BaseModel):
+    status: str = Field(..., description="Status of the device registration request.")
+    platform: str = Field(..., description="Platform stored for the device.")
+
+
+class NotificationSummary(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    sent: int = Field(..., description="Number of notifications sent successfully.")
+    failed: int = Field(..., description="Number of failed sends.")
+    removed: int = Field(..., description="Tokens removed because they were invalid.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error detail.")
 
 
 @router.on_event("startup")
@@ -32,7 +48,26 @@ def _start_scheduler() -> None:
         LOGGER.exception("Failed to start notification scheduler: %s", exc)
 
 
-@router.post("/device", status_code=200)
+@router.post(
+    "/device",
+    status_code=200,
+    summary="Register a notification device",
+    description=(
+        "Associates a push device token to the authenticated user.  \n"
+        "- Validates the session token.  \n"
+        "- Normalizes platform and username.  \n"
+        "- Saves or updates the device registration."
+    ),
+    operation_id="registerDeviceToken",
+    response_model=DeviceRegistrationResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Username missing."},
+        401: {"model": ErrorResponse, "description": "Session token missing."},
+        402: {"model": ErrorResponse, "description": "Device token missing."},
+        403: {"model": ErrorResponse, "description": "Invalid or missing session token."},
+        404: {"model": ErrorResponse, "description": "User not found."},
+    },
+)
 def register_device(payload: DeviceRegistration) -> Dict[str, str]:
     username = payload.username.strip()
     platform = (payload.platform or DEFAULT_PLATFORM).strip().lower() or DEFAULT_PLATFORM
@@ -75,7 +110,17 @@ def register_device(payload: DeviceRegistration) -> Dict[str, str]:
     )
     return {"status": "registered", "platform": platform}
 
-@router.post("/send-now", status_code=200)
+@router.post(
+    "/send-now",
+    status_code=200,
+    summary="Send notifications now",
+    description=(
+        "Sends push notifications immediately to all registered devices.  \n"
+        "If `body` is omitted, a personalized message is generated per user."
+    ),
+    operation_id="sendBroadcastNotification",
+    response_model=NotificationSummary,
+)
 def send_now(payload: ManualNotification) -> Dict[str, int]:
     summary = notify.send_broadcast_notification(body=payload.body, title=payload.title)
     with notify.last_run_lock:

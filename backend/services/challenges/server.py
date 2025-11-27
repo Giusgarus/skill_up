@@ -3,11 +3,11 @@ import logging
 from pathlib import Path
 from statistics import mean
 from datetime import timedelta, date as date_cls
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path as FastAPIPath
 import backend.db.database as db
 import backend.utils.session as session
 import backend.utils.timing as timing
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, List, Set, Any, Dict, Optional
 from pymongo import ReturnDocument, ASCENDING, DESCENDING
 import backend.utils.llm_interaction as llm
@@ -53,32 +53,68 @@ HARD_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
 #        Payload Classes
 # =================s=============
 class User(BaseModel):
-    token: str
+    token: str = Field(..., description="User session token (Bearer).")
 
 class Goal(User):
-    goal: str
+    goal: str = Field(..., description="User goal used to generate the plan.")
 
 class Plan(User):
-    plan_id: int
+    plan_id: int = Field(..., description="Identifier of the plan associated with the user.")
 
 class Task(Plan):
-    task_id: int
-    medal_taken: Optional[str] = "None"
+    task_id: int = Field(..., description="Identifier of the task inside the plan.")
+    medal_taken: Optional[str] = Field("None", description="Medal assigned on completion, if any.")
 
 class Report(Task):
-    report: str
+    report: str = Field(..., description="User feedback text for the completed task.")
 
 class Replan(Plan):
-    new_goal: str
+    new_goal: str = Field(..., description="New goal to regenerate the existing plan.")
     
 class HardPlan(User):
-    preset: str
+    preset: str = Field(..., description="Preset key used to create a predefined plan.")
+
+
+class StatusResponse(BaseModel):
+    status: bool = Field(..., description="Outcome of the request.")
+
+
+class ScoreResponse(StatusResponse):
+    score: int = Field(..., description="Updated user score.")
+
+
+class PlanCreationResponse(StatusResponse):
+    model_config = ConfigDict(extra="allow")
+    plan_id: int = Field(..., description="Identifier of the created plan.")
+    prompt: Optional[str] = Field(None, description="Prompt used to generate the plan.")
+    response: Optional[Any] = Field(None, description="Response from the model or preset.")
+    tasks: list[dict[str, Any]] | dict[str, Any] = Field(
+        ...,
+        description="Generated or inserted tasks; structure depends on the source.",
+    )
+
+
+class ActivePlansResponse(StatusResponse):
+    model_config = ConfigDict(extra="allow")
+    plans: List[Dict[str, Any]] = Field(..., description="List of active plans with their tasks.")
+
+
+class ReplanResponse(StatusResponse):
+    model_config = ConfigDict(extra="allow")
+    plan_id: int = Field(..., description="Identifier of the replanned plan.")
+    tasks: List[Dict[str, Any]] = Field(..., description="New tasks inserted into the plan.")
+    data: Dict[str, Any] = Field(..., description="Payload returned by the LLM.")
+    prompt: Optional[str] = Field(None, description="Prompt used during replanning.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error detail.")
 
 
 # ===============================
 #        Fast API Router
 # ===============================
-router = APIRouter(prefix="/services/challenges", tags=["challenges"])
+router = APIRouter(prefix="/services/challenges", tags=["Challenges"])
 
 def _insert_plan_for_user(
     user_id: str,
@@ -197,7 +233,29 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
 # ==========================
 #         task_done
 # ==========================
-@router.post("/task_done", status_code=200)
+@router.post(
+    "/task_done",
+    status_code=200,
+    summary="Mark task as done",
+    description=(
+        "Marks a task as completed and updates user score, plan stats, and leaderboard.  \n"
+        "- Validates session token and plan/task identifiers.  \n"
+        "- Updates completion counters and medals when provided.  \n"
+        "- Keeps the leaderboard sorted by score."
+    ),
+    operation_id="completeTask",
+    response_model=ScoreResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "Invalid plan."},
+        403: {"model": ErrorResponse, "description": "Invalid task."},
+        404: {"model": ErrorResponse, "description": "Task not found or not completable."},
+        405: {"model": ErrorResponse, "description": "Plan not found."},
+        406: {"model": ErrorResponse, "description": "User not found after update."},
+        407: {"model": ErrorResponse, "description": "Invalid user projection after update."},
+        408: {"model": ErrorResponse, "description": "Invalid medal provided."},
+    },
+)
 async def task_done(payload: Task) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
@@ -352,7 +410,28 @@ async def task_done(payload: Task) -> dict:
 # ==========================
 #        task_undo
 # ==========================
-@router.post("/task_undo", status_code=200)
+@router.post(
+    "/task_undo",
+    status_code=200,
+    summary="Undo task completion",
+    description=(
+        "Restores an already completed task to incomplete state.  \n"
+        "- Validates session token and plan/task identifiers.  \n"
+        "- Decrements score and counters, reactivating the plan when needed.  \n"
+        "- Updates the leaderboard accordingly."
+    ),
+    operation_id="undoTaskCompletion",
+    response_model=ScoreResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "Invalid plan."},
+        403: {"model": ErrorResponse, "description": "Invalid task."},
+        404: {"model": ErrorResponse, "description": "Task not completed or not found."},
+        405: {"model": ErrorResponse, "description": "Plan not found."},
+        406: {"model": ErrorResponse, "description": "User not found after update."},
+        407: {"model": ErrorResponse, "description": "Invalid user projection after update."},
+    },
+)
 async def task_undo(payload: Task) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
@@ -488,7 +567,21 @@ async def task_undo(payload: Task) -> dict:
 # ==========================
 #          report
 # ==========================
-@router.post("/report", status_code=200)
+@router.post(
+    "/report",
+    status_code=200,
+    summary="Submit task report",
+    description=(
+        "Stores textual feedback for a task belonging to an active plan.  \n"
+        "Requires a valid token and existing plan/task identifiers."
+    ),
+    operation_id="reportTaskFeedback",
+    response_model=StatusResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        503: {"model": ErrorResponse, "description": "Database error or invalid plan."},
+    },
+)
 def report(payload: Report) -> dict:
     plan_id = payload.plan_id
     task_id = payload.task_id
@@ -516,7 +609,25 @@ def report(payload: Report) -> dict:
 # ==========================
 #          prompt
 # ==========================
-@router.post("/prompt", status_code=200)
+@router.post(
+    "/prompt",
+    status_code=200,
+    summary="Generate a personalized plan",
+    description=(
+        "Calls the LLM engine to generate a new plan from the user's goal.  \n"
+        "- Validates the session token.  \n"
+        "- Saves plan and generated tasks with difficulty and score.  \n"
+        "- Returns the created plan with task references."
+    ),
+    operation_id="generatePlan",
+    response_model=PlanCreationResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        502: {"model": ErrorResponse, "description": "LLM service error."},
+        503: {"model": ErrorResponse, "description": "Invalid user or missing plan data."},
+        505: {"model": ErrorResponse, "description": "Database error while creating the plan."},
+    },
+)
 async def get_llm_response(payload: Goal) -> dict:
     token = payload.token
     user_goal = payload.goal
@@ -637,8 +748,27 @@ async def get_llm_response(payload: Goal) -> dict:
 # ==========================
 #       hardcoded plan
 # ==========================
-@router.post("/hard/{preset}", status_code=200)
-async def create_hard_plan(preset: str, payload: User) -> dict:
+@router.post(
+    "/hard/{preset}",
+    status_code=200,
+    summary="Create a preset plan",
+    description=(
+        "Creates a plan with predefined tasks using a hard preset (e.g., `hard1`, `hard2`).  \n"
+        "Validates the session token before creating the plan and tasks."
+    ),
+    operation_id="createPresetPlan",
+    response_model=PlanCreationResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        404: {"model": ErrorResponse, "description": "Plan preset not recognized."},
+        503: {"model": ErrorResponse, "description": "Invalid user while creating the plan."},
+        505: {"model": ErrorResponse, "description": "Database error while creating the plan."},
+    },
+)
+async def create_hard_plan(
+    preset: Annotated[str, FastAPIPath(description="Preset key to apply for the generated plan.")],
+    payload: User,
+) -> dict:
     token = payload.token
     valid_token, user_id = session.verify_session(token)
     if not valid_token:
@@ -656,7 +786,21 @@ async def create_hard_plan(preset: str, payload: User) -> dict:
 # ==========================
 #        plan/delete
 # ==========================
-@router.post("/plan/delete", status_code=200)
+@router.post(
+    "/plan/delete",
+    status_code=200,
+    summary="Delete a plan",
+    description=(
+        "Marks a plan as deleted and removes unfinished tasks from the active view.  \n"
+        "Also updates the user's list of active plans."
+    ),
+    operation_id="deletePlan",
+    response_model=StatusResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        404: {"model": ErrorResponse, "description": "Invalid or non-existent plan."},
+    },
+)
 async def delete_plan(payload: Plan) -> dict:
     plan_id = payload.plan_id
     ok, user_id = session.verify_session(payload.token)
@@ -670,7 +814,7 @@ async def delete_plan(payload: Plan) -> dict:
         values_dict={"$set": {"deleted": True}},
     )
     if res.matched_count == 0:
-        # io qui metterei 404, ma se vuoi tenere 402 è una scelta tua
+        # io qui metterei 404, ma se vuoi tenere 402 e' una scelta tua
         raise HTTPException(status_code=404, detail="Invalid plan")
 
     # 2) mark all *not completed yet* tasks for this plan as deleted
@@ -700,7 +844,21 @@ async def delete_plan(payload: Plan) -> dict:
 # ==========================
 #       plan/active
 # ==========================
-@router.post("/plan/active", status_code=200)
+@router.post(
+    "/plan/active",
+    status_code=200,
+    summary="List active plans",
+    description=(
+        "Retrieves all active plans for the authenticated user with their non-deleted tasks.  \n"
+        "If a plan is missing from storage, the entry is flagged in the list."
+    ),
+    operation_id="getActivePlans",
+    response_model=ActivePlansResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        404: {"model": ErrorResponse, "description": "User not found."},
+    },
+)
 async def get_active_plan(payload: User) -> dict:
     ok, user_id = session.verify_session(payload.token)
 
@@ -777,7 +935,22 @@ async def get_active_plan(payload: User) -> dict:
 # ==========================
 #          replan
 # ==========================
-@router.post("/prompt/replan", status_code=200)
+@router.post(
+    "/prompt/replan",
+    status_code=200,
+    summary="Replan an existing plan",
+    description=(
+        "Creates a new version of the plan from a new goal, marking previous tasks as deleted.  \n"
+        "Increments the replan counter and adds tasks with sequential IDs."
+    ),
+    operation_id="replanExistingPlan",
+    response_model=ReplanResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "Invalid or non-existent plan."},
+        502: {"model": ErrorResponse, "description": "LLM service error during replan."},
+    },
+)
 async def replan(payload: Replan) -> dict:
     plan_id = payload.plan_id
     new_goal = payload.new_goal

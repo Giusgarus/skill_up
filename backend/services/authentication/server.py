@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import timezone as _tz
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from email_validator import EmailNotValidError, validate_email
 import backend.utils.security as security
 import backend.utils.session as session
@@ -18,21 +18,43 @@ logger = logging.getLogger("auth_service")
 #        Payload Classes
 # ==============================
 class User(BaseModel):
-    username: Optional[str] = None
-    token: Optional[str] = None
+    username: Optional[str] = Field(None, description="Username linked to the session, if provided.")
+    token: Optional[str] = Field(None, description="Session token (Bearer) to validate or revoke.")
 
 class Login(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., description="Username chosen during registration.")
+    password: str = Field(..., description="Account password.")
 
 class Register(Login):
-    email: str
+    email: str = Field(..., description="Valid email address that is not already used.")
+
+
+class AuthResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: bool = Field(..., description="Indicates whether the authentication step succeeded.")
+    token: Optional[str] = Field(None, description="New session token generated for the user.")
+    username: Optional[str] = Field(None, description="Username associated with the generated token.")
+
+
+class LogoutResponse(BaseModel):
+    status: bool = Field(..., description="Outcome of the logout request.")
+    valid: bool = Field(..., description="Whether the provided token was valid.")
+
+
+class BearerValidationResponse(BaseModel):
+    status: bool = Field(..., description="Outcome of the token verification.")
+    valid: bool = Field(..., description="Whether the token is valid.")
+    username: str = Field(..., description="Username associated with the verified token.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error detail.")
 
 
 # ===============================
 #        Fast API Router
 # ===============================
-router = APIRouter(prefix="/services/auth", tags=["auth"])
+router = APIRouter(prefix="/services/auth", tags=["Auth"])
 
 
 
@@ -43,7 +65,27 @@ router = APIRouter(prefix="/services/auth", tags=["auth"])
 # ==========================
 #         register
 # ==========================
-@router.post("/register", status_code=200)
+@router.post(
+    "/register",
+    status_code=200,
+    summary="Register a new account",
+    description=(
+        "Creates a new SkillUp user validating email, password strength, and username/email uniqueness.  \n"
+        "- Validates the email with deliverability checks.  \n"
+        "- Enforces existing password complexity rules.  \n"
+        "- Generates a session token for the newly registered user."
+    ),
+    operation_id="registerUser",
+    response_model=AuthResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Username/password/email missing."},
+        401: {"model": ErrorResponse, "description": "Invalid email."},
+        402: {"model": ErrorResponse, "description": "Password does not meet complexity requirements."},
+        403: {"model": ErrorResponse, "description": "Username already exists."},
+        404: {"model": ErrorResponse, "description": "Email already in use."},
+        500: {"model": ErrorResponse, "description": "Database error while creating the user."},
+    },
+)
 def register(payload: Register) -> dict:
     username = str(payload.username).strip()
     password = payload.password
@@ -105,7 +147,21 @@ def register(payload: Register) -> dict:
 # ==========================
 #           login
 # ==========================
-@router.post("/login", status_code=200)
+@router.post(
+    "/login",
+    status_code=200,
+    summary="Log in",
+    description=(
+        "Authenticates an existing user by verifying username and password.  \n"
+        "Returns a new session token when credentials are correct."
+    ),
+    operation_id="loginUser",
+    response_model=AuthResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Username or password missing."},
+        401: {"model": ErrorResponse, "description": "Invalid credentials."},
+    },
+)
 def login(payload: Login) -> dict:
     username = str(payload.username).strip()
     password = payload.password
@@ -126,7 +182,23 @@ def login(payload: Login) -> dict:
 # ==========================
 #          logout
 # ==========================
-@router.post("/logout", status_code=200)
+@router.post(
+    "/logout",
+    status_code=200,
+    summary="Log out",
+    description=(
+        "Revokes the provided session token and, when given, checks consistency with the username.  \n"
+        "Detaches any linked notification device tokens."
+    ),
+    operation_id="logoutUser",
+    response_model=LogoutResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Token not provided."},
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "User not found."},
+        403: {"model": ErrorResponse, "description": "Username does not match the token owner."},
+    },
+)
 def logout(payload: User) -> dict:
     token = payload.token
     username = str(payload.username).strip() if payload.username else None
@@ -168,7 +240,23 @@ def logout(payload: User) -> dict:
 # ==========================
 #       check_bearer
 # ==========================
-@router.post("/check_bearer", status_code=200)
+@router.post(
+    "/check_bearer",
+    status_code=200,
+    summary="Validate bearer token",
+    description=(
+        "Checks that the Bearer token is valid and, if provided, that the username matches the one associated.  \n"
+        "Returns the canonical username tied to the token."
+    ),
+    operation_id="checkBearer",
+    response_model=BearerValidationResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Token not provided."},
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "User not found."},
+        403: {"model": ErrorResponse, "description": "Username does not match the token owner."},
+    },
+)
 def validate_bearer(payload: User) -> dict:
     token = payload.token
     username = str(payload.username).strip() if payload.username else None

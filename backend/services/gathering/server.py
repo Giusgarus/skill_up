@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Set
 from pathlib import Path
 import json
 import os
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from fastapi import APIRouter, HTTPException
 from pymongo.errors import PyMongoError
 from backend.utils import session
@@ -36,27 +36,44 @@ RecordStr = Annotated[
 ]
 
 class User(BaseModel):
-    token: str
+    token: str = Field(..., description="User session token (Bearer).")
 
 class UserAttribute(User):
-    attribute: str
+    attribute: str = Field(..., description="Name of the attribute to read.")
 
 class UserBody(User):
-    attribute: str
-    record: RecordStr
+    attribute: str = Field(..., description="Name of the attribute to update.")
+    record: Annotated[RecordStr, Field(description="New value to apply to the given attribute.")]
 
 class Interests(User):
-    interests: list[str]
+    interests: list[str] = Field(..., description="List of interests (allowed labels only).")
 
 class Questions(User):
-    answers: list[int] # range=[0,4]
+    answers: list[int] = Field(..., description="Numeric answers between 0 and 4 (inclusive).")
+
+
+class StatusResponse(BaseModel):
+    status: bool = Field(..., description="Operation outcome flag.")
+
+
+class UserDataResponse(StatusResponse):
+    model_config = ConfigDict(extra="allow")
+
+
+class UpdateUserResponse(StatusResponse):
+    attribute: str = Field(..., description="Updated attribute name.")
+    new_record: RecordStr = Field(..., description="Value applied to the attribute.")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error detail.")
 
 
 
 # ===============================
 #        Fast API Router
 # ===============================
-router = APIRouter(prefix="/services/gathering", tags=["gathering"])
+router = APIRouter(prefix="/services/gathering", tags=["User Data"])
 
 
 
@@ -67,7 +84,21 @@ router = APIRouter(prefix="/services/gathering", tags=["gathering"])
 # ==========================
 #            get
 # ==========================
-@router.post("/get", status_code = 200)
+@router.post(
+    "/get",
+    status_code = 200,
+    summary="Get a user attribute",
+    description=(
+        "Returns the value of an allowed attribute for the authenticated user.  \n"
+        "Handles special cases like `medals` or `interests_info`, returning already transformed data."
+    ),
+    operation_id="getUserAttribute",
+    response_model=UserDataResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing token, or unsupported attribute."},
+        402: {"model": ErrorResponse, "description": "Database error or user not found."},
+    },
+)
 def get_user(payload: UserAttribute) -> dict:
     ok, user_id = session.verify_session(payload.token)
     attribute = payload.attribute.strip()
@@ -113,7 +144,24 @@ def get_user(payload: UserAttribute) -> dict:
 # ==========================
 #            set
 # ==========================
-@router.post("/set", status_code = 200)
+@router.post(
+    "/set",
+    status_code = 200,
+    summary="Update a user attribute",
+    description=(
+        "Updates a single allowed attribute for the authenticated user (e.g., name, username, about).  \n"
+        "Prevents username collisions and validates the session before writing to the database."
+    ),
+    operation_id="updateUserAttribute",
+    response_model=UpdateUserResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        401: {"model": ErrorResponse, "description": "Unsupported attribute."},
+        402: {"model": ErrorResponse, "description": "Database error while updating."},
+        403: {"model": ErrorResponse, "description": "User not found."},
+        409: {"model": ErrorResponse, "description": "Username already used by another user."},
+    },
+)
 def update_user(payload: UserBody):
     valid_token, user_id = session.verify_session(payload.token)
     if not valid_token:
@@ -145,7 +193,22 @@ def update_user(payload: UserBody):
 # ==========================
 #         interests
 # ==========================
-@router.post("/interests", status_code = 200)
+@router.post(
+    "/interests",
+    status_code = 200,
+    summary="Set user interests",
+    description=(
+        "Stores the interests selected by the authenticated user, mapping them to allowed labels.  \n"
+        "Accepts only valid labels defined in configuration."
+    ),
+    operation_id="setUserInterests",
+    response_model=StatusResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid interests format."},
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "User not found."},
+    },
+)
 def set_interests(payload: Interests):
     ok, user_id = session.verify_session(payload.token)
     interests = payload.interests
@@ -173,7 +236,22 @@ def set_interests(payload: Interests):
 # ==========================
 #         questions
 # ==========================
-@router.post("/questions", status_code = 200)
+@router.post(
+    "/questions",
+    status_code = 200,
+    summary="Store questionnaire answers",
+    description=(
+        "Stores questionnaire answers (values between 0 and 4) for the authenticated user.  \n"
+        "Validates the session and the answers format before persisting."
+    ),
+    operation_id="setUserQuestions",
+    response_model=StatusResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid answers format (values out of range)."},
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {"model": ErrorResponse, "description": "User not found."},
+    },
+)
 def set_questions(payload: Questions):
     ok, user_id = session.verify_session(payload.token)
     answers = payload.answers
