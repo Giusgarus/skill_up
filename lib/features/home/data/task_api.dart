@@ -705,20 +705,6 @@ class TaskApi {
     return null;
   }
 
-  Map<String, dynamic> _pickLatestPlan(List<Map> plans) {
-    plans.sort((a, b) {
-      final aDate = _parseDate(a['created_at']);
-      final bDate = _parseDate(b['created_at']);
-      if (aDate != null && bDate != null) {
-        return bDate.compareTo(aDate);
-      }
-      final aId = _toInt(a['plan_id']) ?? 0;
-      final bId = _toInt(b['plan_id']) ?? 0;
-      return bId.compareTo(aId);
-    });
-    return plans.first.cast<String, dynamic>();
-  }
-
   DateTime? _maxDeadline(List<RemoteTask> tasks) {
     if (tasks.isEmpty) return null;
     tasks.sort((a, b) => a.deadline.compareTo(b.deadline));
