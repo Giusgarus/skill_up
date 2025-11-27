@@ -22,6 +22,10 @@ import 'package:skill_up/features/settings/presentation/pages/settings_page.dart
 import 'package:skill_up/shared/notifications/notification_service.dart';
 import 'package:skill_up/features/home/presentation/pages/statistics_page.dart';
 import 'plan_overview.dart';
+import 'package:skill_up/shared/widgets/gradient_text_field_card.dart';
+import 'package:skill_up/shared/widgets/gradient_icon_button.dart';
+
+typedef TaskLongPressCallback = void Function(DailyTask task, Offset position);
 
 class DailyTask {
   const DailyTask({
@@ -99,7 +103,7 @@ class _HomePageState extends State<HomePage> {
   String? _harmfulPromptMessage;
   static const Duration _tokenRetryDelay = Duration(seconds: 12);
   static const String _serverLogoutMessage =
-      'Il server ti ha disconnesso. Effettua di nuovo il login per continuare.';
+      'The server has disconnected you. Please log in again to continue.';
   AuthSession? _session;
   int? _activePlanId;
   late final DateTime _today;
@@ -128,6 +132,26 @@ class _HomePageState extends State<HomePage> {
 
   bool _isReplanningTask = false;
 
+  /// Maximum number of days to check backward for the streak.
+  /// You can increase this if you want to consider longer streaks.
+  DateTime get _streakLowerBound =>
+      dateOnly(_today).subtract(const Duration(days: 365));
+
+  void _showSnack(
+      String message, {
+        Duration duration = const Duration(milliseconds: 1400),
+      }) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: duration,
+        ),
+      );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -144,6 +168,42 @@ class _HomePageState extends State<HomePage> {
       _loadGoalSuggestions();
     }));
     unawaited(_validateSessionWithRetry());
+  }
+
+
+  MedalType _medalForDay(DateTime day) {
+    final normalized = dateOnly(day);
+
+    // 1) Se ho i task in memoria per quel giorno, calcolo la medaglia da lì
+    final tasks = _tasksByDay[normalized];
+    if (tasks != null && tasks.isNotEmpty) {
+      final completed = tasks.where((t) => t.isCompleted).length;
+      return medalForProgress(
+        completed: completed,
+        total: tasks.length,
+      );
+    }
+
+    // 2) Altrimenti, se ho un numero di completati in _completedTasksByDay,
+    // lo uso (fallback)
+    final storedCompleted = _completedTasksByDay[normalized];
+    if (storedCompleted != null) {
+      final total = _totalTasksForDay(normalized);
+      return medalForProgress(
+        completed: storedCompleted,
+        total: total,
+      );
+    }
+
+    // 3) Fallback finale: prova a leggerlo dal MedalHistoryRepository
+    //
+    try {
+      final medal = _medalRepository.medalForDay(normalized);
+      return medal ?? MedalType.none;
+    } catch (_) {
+      // se non hai ancora questo metodo o se qualcosa va storto
+      return MedalType.none;
+    }
   }
 
   void _changeWeek(int offsetWeeks) {
@@ -226,30 +286,44 @@ class _HomePageState extends State<HomePage> {
       });
       if (_planError != null &&
           !_planError!.toLowerCase().contains('no active plan')) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(content: Text(_planError!)),
-          );
+        _showSnack(_planError!);
       }
     }
   }
 
   Future<void> _loadGoalSuggestions() async {
+    // Evita chiamate duplicate se è già in corso un fetch
+    if (_loadingSuggestions) return;
+
     final session = await _ensureSession();
     if (session == null) {
       return;
     }
-    setState(() {
-      _loadingSuggestions = true;
-    });
-    final result = await _gatheringApi.fetchInterests(token: session.token);
-    final suggestions = buildGoalSuggestions(result.interests);
-    if (!mounted) return;
-    setState(() {
-      _goalSuggestions = suggestions;
-      _loadingSuggestions = false;
-    });
+
+    if (mounted) {
+      setState(() {
+        _loadingSuggestions = true;
+      });
+    }
+
+    try {
+      final result = await _gatheringApi.fetchInterests(token: session.token);
+      final suggestions = buildGoalSuggestions(result.interests);
+
+      if (!mounted) return;
+
+      setState(() {
+        _goalSuggestions = suggestions;
+      });
+    } catch (_) {
+      // opzionale: puoi mettere una SnackBar qui se vuoi segnalare l'errore
+      // se preferisci fallire "silenziosamente", lasciamo vuoto
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _loadingSuggestions = false;
+      });
+    }
   }
 
   void _setPlanData(List<RemoteTask> remoteTasks, int planId) {
@@ -299,7 +373,6 @@ class _HomePageState extends State<HomePage> {
         ...completedByDay,
       };
       _ensureWeekCoverage();
-      _selectedDay = _selectedDay;
       _tasks = _buildTasksForDay(_selectedDay);
       _planError = null;
     });
@@ -339,25 +412,24 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadProfileImage() async {
     final session = await _ensureSession();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+
     if (session == null) {
       setState(() => _profileImage = null);
       return;
     }
+
     final file = await _profileStorage.loadProfileImage(session.username);
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+
     if (file == null) {
       setState(() => _profileImage = null);
       return;
     }
+
     final bytes = await file.readAsBytes();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+
     setState(() {
       _profileImage = MemoryImage(bytes);
     });
@@ -459,15 +531,15 @@ class _HomePageState extends State<HomePage> {
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
-          title: const Text('Abilita le notifiche'),
+          title: const Text('Enable the notification'),
           content: const Text(
-            'SkillUp invia promemoria e aggiornamenti tramite notifiche. '
-            'Per continuare, premi “Continua” e consenti le notifiche nella finestra successiva.',
+            'SkillUp sends reminders and updates via notifications. '
+            'To continue, press “Continue” and allow notifications in the next window.',
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Continua'),
+              child: const Text('Continue'),
             ),
           ],
         ),
@@ -481,12 +553,9 @@ class _HomePageState extends State<HomePage> {
 
     final granted = await service.requestPlatformPermissions();
     if (!granted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Abilita le notifiche dalle impostazioni di sistema per ricevere gli aggiornamenti.',
-          ),
-        ),
+      _showSnack(
+        'Enable notifications from your system settings to receive updates.',
+        duration: const Duration(milliseconds: 4000),
       );
     }
     return granted;
@@ -523,7 +592,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Sessione scaduta'),
+        title: const Text('Sessin expired'),
         content: Text(message),
         actions: [
           TextButton(
@@ -610,35 +679,14 @@ class _HomePageState extends State<HomePage> {
     int streak = 0;
     DateTime day = dateOnly(_today);
 
-    // 1) Controllo se oggi ha una medaglia
-    final completedToday = _completedTasksByDay[day];
-    final totalToday = _totalTasksForDay(day);
-    final bool hasMedalToday = completedToday != null &&
-        medalForProgress(
-          completed: completedToday,
-          total: totalToday,
-        ) != MedalType.none;
-
-    // 2) Se oggi NON ha medaglia, partiamo da ieri
-    if (!hasMedalToday) {
+    // 1) Se oggi non ha medaglia, proviamo a partire da ieri
+    if (_medalRepository.medalForDay(day) == MedalType.none) {
       day = day.subtract(const Duration(days: 1));
     }
 
-    // 3) Camminiamo all'indietro finché troviamo giorni con medaglia
-    while (true) {
-      final completed = _completedTasksByDay[day];
-      if (completed == null) {
-        break; // fuori range / futuro
-      }
-      final total = _totalTasksForDay(day);
-      if (total == 0) {
-        break;
-      }
-
-      final medal = medalForProgress(
-        completed: completed,
-        total: total,
-      );
+    // 2) Andiamo all'indietro finché troviamo giorni con medaglia
+    while (!day.isBefore(_streakLowerBound)) {
+      final medal = _medalRepository.medalForDay(day);
 
       if (medal == MedalType.none) {
         break; // appena troviamo un giorno "fallito" lo streak si ferma
@@ -786,15 +834,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _sendFeedback(DailyTask task, String text) async {
     final session = await _ensureSession();
     if (session == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('No active session found. Please log in again.'),
-            duration: Duration(milliseconds: 1400),
-          ),
-        );
+      _showSnack('No active session found. Please log in again.');
       return;
     }
 
@@ -806,29 +846,20 @@ class _HomePageState extends State<HomePage> {
         report: text,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(
-              result.isSuccess
-                  ? 'Thanks for your feedback 📨'
-                  : (result.errorMessage ?? 'Unable to send feedback.'),
-            ),
-            duration: const Duration(milliseconds: 1500),
-          ),
-        );
+      final message = result.isSuccess
+          ? 'Thanks for your feedback 📨'
+          : (result.errorMessage ?? 'Unable to send feedback.');
+      _showSnack(
+        message,
+        duration: const Duration(milliseconds: 1500),
+      );
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('Unable to send feedback.'),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-    }
+  if (!mounted) return;
+  _showSnack(
+  'Unable to send feedback.',
+  duration: const Duration(milliseconds: 1500),
+  );
+  }
   }
 
 
@@ -874,17 +905,10 @@ class _HomePageState extends State<HomePage> {
       await Future.delayed(const Duration(seconds: 2));
 
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Thanks! We\'ll use this to improve your future tasks 💡',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
+      _showSnack(
+        'Thanks! We\'ll use this to improve your future tasks 💡',
+        duration: const Duration(milliseconds: 1500),
+      );
     } finally {
       if (!mounted) return;
       setState(() {
@@ -929,16 +953,12 @@ class _HomePageState extends State<HomePage> {
               taskId: task.remoteTaskId,
             );
       if (!result.isSuccess && mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                result.errorMessage ?? 'Unable to sync task status.',
-              ),
-              duration: const Duration(milliseconds: 1400),
-            ),
-          );
+        final message =
+            result.errorMessage ?? 'Unable to sync task status.';
+        _showSnack(
+          message,
+          duration: const Duration(milliseconds: 1400),
+        );
       } else {
         if (task.isCompleted) {
           UserStatsRepository.instance.updateXp(task.score);
@@ -948,29 +968,18 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('Unable to sync task status.'),
-            duration: Duration(milliseconds: 1400),
-          ),
-        );
+      if (!mounted) return;
+      _showSnack(
+        'Unable to sync task status.',
+        duration: const Duration(milliseconds: 1400),
+      );
     }
   }
 
   Future<void> _createPlan(String goal) async {
     final session = await _ensureSession();
     if (session == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No active session found. Please log in again.'),
-        ),
-      );
+      _showSnack('No active session found. Please log in again.');
       return;
     }
     setState(() {
@@ -1031,21 +1040,13 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
       if (decision == PlanDecision.declined) {
         await _loadActivePlan();
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('Plan discarded.')),
-        );
+        _showSnack('Plan discarded.');
         return;
       }
 
       // Refresh with all active plans/tasks after accepting
       await _loadActivePlan();
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(content: Text('Plan created successfully.')),
-        );
+      _showSnack('Plan created successfully.');
     } else {
       if (hasPlan && !hasTasks) {
         unawaited(
@@ -1058,11 +1059,9 @@ class _HomePageState extends State<HomePage> {
       final message = hasPlan && !hasTasks
           ? 'The AI did not return any tasks. Please try again.'
           : creationResult?.errorMessage ??
-              freshest.errorMessage ??
-              'Unable to build the plan right now.';
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+          freshest.errorMessage ??
+          'Unable to build the plan right now.';
+      _showSnack(message);
     }
   }
 
@@ -1136,7 +1135,7 @@ class _HomePageState extends State<HomePage> {
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               24,
-              300, // 👈 deve essere >= height dello sfondo colorato
+              300,
               24,
               18,
             ),
@@ -1334,8 +1333,8 @@ class _HomePageState extends State<HomePage> {
           if (_isBuildingPlan || _isFetchingPlan || _isReplanningTask)
             _BuildingPlanOverlay(
               message: _isReplanningTask
-                  ? 'The AI is\nupdating this task ...'
-                  : 'The AI is\nbuilding your plan ...',
+                  ? 'The AI is\nupdating this task...'
+                  : 'The AI is\nbuilding your plan...',
             ),
 
           // 8) harmful prompt banner
@@ -1494,21 +1493,37 @@ class _SidePillButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: image != null
-              ? Image(
-            image: image!,
-            width: 40,
-            height: 40,
-            fit: BoxFit.cover,   // riempie bene il cerchietto
-          )
-              : Image.asset(
-            asset!,             // fallback icona PNG
-            width: 40,
-            height: 40,
-            fit: BoxFit.contain,
-          ),
+        child: _buildInnerIcon(),
+      ),
+    );
+  }
+
+  Widget _buildInnerIcon() {
+    // 🔹 Se NON ho immagine profilo → uso l'asset e basta
+    if (image == null) {
+      return Image.asset(
+        asset!,
+        width: 40,
+        height: 40,
+        fit: BoxFit.contain,
+      );
+    }
+
+    // 🔹 Se ho immagine profilo → metto cerchio + bordino
+    return Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.85), // ⭐ bordino elegante
+          width: 2.3,
+        ),
+      ),
+      child: ClipOval(
+        child: Image(
+          image: image!,
+          fit: BoxFit.cover,
         ),
       ),
     );
@@ -1861,66 +1876,75 @@ class _SummaryLevelBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 120,
       height: 26,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Stack(
-          children: [
-            // base grigia
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD8D8D8),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            // riempimento animato
-            AnimatedPositioned(
-              duration: _fillDuration,
-              curve: _curve,
-              left: 0,
-              top: 0,
-              bottom: 0,
-              right: isActive ? 0 : 120,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF3BC259), Color(0xFF63DE77)],
+      // 🔹 Niente width fissa qui: ci pensa il parent
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final barWidth = constraints.maxWidth;
+
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Stack(
+              children: [
+                // base grigia
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD8D8D8),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(10),
                 ),
-              ),
-            ),
-            // bagliore bianco per dare l'idea di energia
-            IgnorePointer(
-              child: AnimatedOpacity(
-                duration: _fillDuration,
-                curve: _curve,
-                opacity: isActive ? 0.25 : 0,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: 0.35,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white.withValues(alpha: 0.8),
-                            Colors.white.withValues(alpha: 0.0),
-                          ],
+
+                // riempimento animato
+                AnimatedPositioned(
+                  duration: _fillDuration,
+                  curve: _curve,
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  // 👇 invece di 120, usiamo la larghezza reale della barra
+                  right: isActive ? 0 : barWidth,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF3BC259), Color(0xFF63DE77)],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+
+                // bagliore bianco per dare l'idea di energia
+                IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: _fillDuration,
+                    curve: _curve,
+                    opacity: isActive ? 0.25 : 0,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: 0.35,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white.withValues(alpha: 0.8),
+                                Colors.white.withValues(alpha: 0.0),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -2013,7 +2037,7 @@ class _HabitGrid extends StatelessWidget {
 
   final List<DailyTask> tasks;
   final ValueChanged<String> onTaskTap;
-  final void Function(DailyTask, Offset) onTaskLongPress;
+  final TaskLongPressCallback onTaskLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -2050,7 +2074,7 @@ class _HabitCard extends StatelessWidget {
 
   final DailyTask task;
   final ValueChanged<String> onTap;
-  final void Function(DailyTask, Offset)? onLongPress;
+  final TaskLongPressCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -2328,7 +2352,7 @@ class _AddHabitOverlayContent extends StatelessWidget {
             minLines: 1,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
-              hintText: 'Write here the general goal that you want to achive ...',
+              hintText: 'Write here the general goal you want to achieve ...',
               border: InputBorder.none,
               isCollapsed: false,
               hintStyle: TextStyle(
@@ -2420,44 +2444,17 @@ class _AddHabitOverlayContent extends StatelessWidget {
 
           const SizedBox(height: 28),
 
-          // ✅ Bottone con freccia più simile al mock
           Align(
             alignment: Alignment.center,
-            child: GestureDetector(
+            child: GradientIconButton(
+              width: 130,
+              height: 70,
+              iconSize: 45,
               onTap: () {
                 final goal = controller.text.trim();
-                if (goal.isEmpty) return; // per ora, se vuoto non facciamo niente
+                if (goal.isEmpty) return;
                 onSubmit(goal);
               },
-              child: Container(
-                width: 130,
-                height: 70,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 10,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: SvgPicture.asset(
-                  'assets/icons/send_icon.svg',
-                  width: 45,
-                  height: 45,
-                  colorFilter: const ColorFilter.mode(
-                    Colors.white,
-                    BlendMode.srcIn,
-                  ),
-                ),
-              ),
             ),
           ),
         ],
@@ -2776,58 +2773,9 @@ class _TaskFeedbackOverlayState extends State<_TaskFeedbackOverlay> {
                     const SizedBox(height: 12),
 
                     // 🔹 TEXTFIELD con bordino gradient come i suggestion chip
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          width: 2,
-                          color: Colors.transparent,
-                        ),
-                        gradient: const LinearGradient(
-                          colors: [
-                            Color(0xFFFF9A9E),
-                            Color(0xFFFFCF71),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Container(
-                        margin: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: TextField(
-                          controller: _controller,
-                          autofocus: true,
-                          maxLines: 4,
-                          minLines: 2,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            hintText:
-                            'Tell us what felt harmful, unsafe or wrong...',
-                            border: InputBorder.none,
-                            hintStyle: TextStyle(
-                              fontFamily: 'FiraCode',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w400,
-                              color: Color(0x99000000),
-                            ),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                          style: const TextStyle(
-                            fontFamily: 'FiraCode',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            height: 1.3,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
+                    GradientTextFieldCard(
+                      controller: _controller,
+                      hintText: 'Tell us what felt harmful, unsafe or wrong...',
                     ),
 
                     const SizedBox(height: 10),
@@ -2861,41 +2809,14 @@ class _TaskFeedbackOverlayState extends State<_TaskFeedbackOverlay> {
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // bottone invio
+                    //send button
                     Align(
                       alignment: Alignment.center,
-                      child: GestureDetector(
+                      child: GradientIconButton(
                         onTap: () => widget.onSubmit(_controller.text),
-                        child: Container(
-                          width: 100,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                blurRadius: 10,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          alignment: Alignment.center,
-                          child: SvgPicture.asset(
-                            'assets/icons/send_icon.svg',
-                            width: 32,
-                            height: 32,
-                            colorFilter: const ColorFilter.mode(
-                              Colors.white,
-                              BlendMode.srcIn,
-                            ),
-                          ),
-                        ),
+                        width: 100,
+                        height: 56,
+                        iconSize: 32,
                       ),
                     ),
                   ],
@@ -3096,58 +3017,9 @@ class _TaskReplanOverlayState extends State<_TaskReplanOverlay> {
                     const SizedBox(height: 12),
 
                     // 🔹 TEXTFIELD con bordino gradient
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          width: 2,
-                          color: Colors.transparent,
-                        ),
-                        gradient: const LinearGradient(
-                          colors: [
-                            Color(0xFFFF9A9E),
-                            Color(0xFFFFCF71),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Container(
-                        margin: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: TextField(
-                          controller: _controller,
-                          autofocus: true,
-                          maxLines: 4,
-                          minLines: 2,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            hintText:
-                            'What would you change in this task? (timing, difficulty, content...)',
-                            border: InputBorder.none,
-                            hintStyle: TextStyle(
-                              fontFamily: 'FiraCode',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w400,
-                              color: Color(0x99000000),
-                            ),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                          style: const TextStyle(
-                            fontFamily: 'FiraCode',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            height: 1.3,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
+                    GradientTextFieldCard(
+                      controller: _controller,
+                      hintText: 'What would you change in this task? (timing, difficulty, content...)',
                     ),
 
                     const SizedBox(height: 10),
@@ -3189,40 +3061,14 @@ class _TaskReplanOverlayState extends State<_TaskReplanOverlay> {
                     ),
                     const SizedBox(height: 16),
 
-                    // bottone invio
+                    // send button
                     Align(
                       alignment: Alignment.center,
-                      child: GestureDetector(
+                      child: GradientIconButton(
                         onTap: () => widget.onSubmit(_controller.text),
-                        child: Container(
-                          width: 100,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                blurRadius: 10,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          alignment: Alignment.center,
-                          child: SvgPicture.asset(
-                            'assets/icons/send_icon.svg',
-                            width: 32,
-                            height: 32,
-                            colorFilter: const ColorFilter.mode(
-                              Colors.white,
-                              BlendMode.srcIn,
-                            ),
-                          ),
-                        ),
+                        width: 100,
+                        height: 56,
+                        iconSize: 32,
                       ),
                     ),
                   ],
