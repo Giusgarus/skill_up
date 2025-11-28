@@ -110,6 +110,8 @@ def backend_app(monkeypatch):
 
     today = datetime.utcnow().date()
 
+    score_map = {"easy": 10, "medium": 30, "hard": 50}
+
     def _build_tasks(prefix: str, difficulties: tuple[str, ...]):
         tasks = {}
         for idx, diff in enumerate(difficulties):
@@ -117,6 +119,7 @@ def backend_app(monkeypatch):
                 "title": f"{prefix} Task {idx}",
                 "description": f"{prefix} description {idx}",
                 "difficulty": diff,
+                "score": score_map.get(diff, 10),
             }
         return tasks
 
@@ -682,6 +685,50 @@ def test_plan_delete_marks_plan_and_active_list(backend_app):
 
     plan_doc = db["plans"].find_one({"plan_id": 1})
     assert plan_doc["deleted"] is True
+
+
+def test_retask_updates_task_and_prompt(backend_app):
+    client = backend_app["client"]
+    db = backend_app["db"]
+    token = register_user(client, "retasker")["token"]
+    create_plan(client, token, goal="retask original goal")
+
+    original_prompts = db["plans"].find_one({"plan_id": 1})["prompts"]
+    assert len(original_prompts) == 1
+
+    new_goal = "new retask goal"
+    resp = client.post(
+        "/services/challenges/retask",
+        json={"token": token, "plan_id": 1, "task_id": 0, "new_goal": new_goal},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] is True
+    assert body["new_task"]["title"].startswith("Replan Task 0")
+    assert body["new_task"]["score"] == 50
+    assert body["new_prompt"].endswith(f"Task 0 modificated with: {new_goal}.")
+
+    task_doc = db["tasks"].find_one({"plan_id": 1, "task_id": 0})
+    assert task_doc["title"] == body["new_task"]["title"]
+    assert task_doc["description"] == body["new_task"]["description"]
+    assert task_doc["score"] == 50
+    assert task_doc["completed_at"] is None
+
+    plan_doc = db["plans"].find_one({"plan_id": 1})
+    assert len(plan_doc["prompts"]) == len(original_prompts)
+    assert plan_doc["prompts"][-1] == body["new_prompt"]
+
+
+def test_retask_requires_existing_task(backend_app):
+    client = backend_app["client"]
+    token = register_user(client, "retask_missing")["token"]
+    create_plan(client, token)
+
+    resp = client.post(
+        "/services/challenges/retask",
+        json={"token": token, "plan_id": 99, "task_id": 0, "new_goal": "new retask goal"},
+    )
+    assert resp.status_code == 404
 
 
 def test_replan_replaces_tasks_and_resets_progress(backend_app):
