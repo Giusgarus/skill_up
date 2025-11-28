@@ -181,45 +181,6 @@ class ReplanTask(BaseModel):
     llm_response: str = Field(description="The original LLM response in JSON format containing the list of the tasks", max_length=2500)
     modification_reason: Optional[str] = Field("", description="The reason why the user wants to change the task", max_length=100)
 
-import json
-from datetime import datetime, timedelta
-
-# 1. SETUP: Mock User Availability (Logic you likely already have)
-# Let's say user is free: Mon (0), Wed (2), Fri (4)
-user_free_weekdays = [0, 2, 4] 
-
-def get_next_free_dates(start_date, count, free_days):
-    """Generates a list of valid dates based on user availability."""
-    dates = []
-    current = start_date
-    while len(dates) < count:
-        # If current day of week is in user's free list
-        if current.weekday() in free_days:
-            dates.append(current.strftime("%Y-%m-%d"))
-        current += timedelta(days=1)
-    return dates
-
-    # 2. GET AI RESPONSE
-    # Assume 'ai_response_json' is the clean JSON list from SkillUp Coach
-    challenges = ai_response_json['challenges_list']
-
-    # 3. DEAL THE CARDS
-    today = datetime.now()
-    valid_dates = get_next_free_dates(today, len(challenges), user_free_weekdays)
-
-    final_tasks = {}
-
-    # Zip the dates with the challenges
-    for date_str, challenge in zip(valid_dates, challenges):
-        final_tasks[date_str] = {
-            "title": challenge['challenge_title'],
-            "description": challenge['challenge_description'],
-            "difficulty": challenge['difficulty'],
-            "duration": challenge['duration_minutes']
-        }
-
-    # 4. RESULT
-    print(json.dumps(final_tasks, indent=2))
 # -----------------------
 # Helpers
 # -----------------------
