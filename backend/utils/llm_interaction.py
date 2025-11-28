@@ -140,11 +140,6 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     history_list: list = []
     if isinstance(history_data, list):
         history_list = history_data
-        
-        
-    # print("THE LAST RESPONSE:", history_list[-1])
-    
-    
     # 3. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
