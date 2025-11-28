@@ -73,6 +73,9 @@ class Report(Task):
 
 class Replan(Plan):
     new_goal: str = Field(..., description="New goal to regenerate the existing plan.")
+
+class Retask(Task):
+    new_goal: str = Field(..., description="New goal with which regenerate the task.")
     
 class HardPlan(User):
     preset: str = Field(..., description="Preset key used to create a predefined plan.")
@@ -321,6 +324,126 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
 # ==============================================
 # ================== ROUTES ====================
 # ==============================================
+
+# ==========================
+#           retask
+# ==========================
+@router.post("/retask", status_code=200)
+async def retask(payload: Retask) -> dict:
+    ok, user_id = session.verify_session(payload.token)
+    plan_id = payload.plan_id
+    task_id = payload.task_id
+    new_goal = payload.new_goal
+    if not ok or not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    if plan_id is None:
+        raise HTTPException(status_code=402, detail="Invalid Plan ID")
+    if task_id is None:
+        raise HTTPException(status_code=403, detail="Invalid Task ID")
+    
+    # 1. Get the task
+    task = db.find_one(
+        table_name="tasks",
+        filters={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},
+        projection={
+            "_id": False,
+            "title": True,
+            "difficulty": True,
+            "description": True,
+            "score": True,
+            "completed_at": True
+        },
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="Invalid task ID")
+
+    # 2. Get the plan
+    plan = db.find_one(
+        table_name="plans",
+        filters={"user_id": user_id, "plan_id": plan_id, "deleted": False},
+        projection={
+            "_id": False,
+            "prompts": True,
+            "responses": True,
+            "n_tasks": True,
+            "next_task_id": True,
+            "n_tasks_done": True,
+            "completed_at": True,
+        },
+    )
+    if plan is None:
+        raise HTTPException(status_code=405, detail="Invalid plan ID")
+    
+    # 3. Create the history for the LLM
+    prompts = plan.get("prompts") or []
+    responses = plan.get("responses") or []
+    if prompts and responses:
+        history = {
+            "last_prompt": prompts[-1],
+            "last_response": responses[-1],
+        }
+    else:
+        history = {}
+
+    # 3. Communication with the LLM server
+    llm_payload = {
+        "goal": new_goal,
+        "level": "0",  # Default to beginner
+        "history": history,
+        "user_info": dh.get_user_info(user_id),
+    }
+    llm_resp = llm.get_llm_response(llm_payload)
+    if not llm_resp.get("status"):
+        err_msg = llm_resp.get("error", "Unknown error from LLM service")
+        logger.error(f"LLM service error for user {user_id}: {err_msg}")
+        raise HTTPException(status_code=501, detail=f"LLM service error: {err_msg}")
+
+    new_tasks_dict: Dict[str, Dict[str, Any]] = dict(llm_resp["result"]["tasks"])
+    date, new_task = next(iter(new_tasks_dict.items()))
+
+    # 4. Update task
+    updated_task = db.find_one_and_update(
+        table_name="tasks",
+        keys_dict={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},
+        values_dict={
+            "$set": {
+                "title": new_task["title"],
+                "description": new_task["description"],
+                "score": new_task["score"],
+                "completed_at": None
+            }
+        },
+        projection={"_id": False, "title": True, "description": True, "score": True},
+        return_policy=ReturnDocument.AFTER,
+    )
+    if not updated_task:
+        raise HTTPException(status_code=406, detail="Task not found")
+    
+    # 5. Update plan (append the prompt of the user in the last prompt of the plan)
+    if not prompts:
+        raise HTTPException(status_code=407, detail="The plan hasn't prompts when should at least 1.")
+    prompts = prompts[:-1] + [str(prompts[-1]) + f"\nTask {task_id} modificated with: {new_goal}."]
+    updated_plan = db.find_one_and_update(
+        table_name="plans",
+        keys_dict={"user_id": user_id, "plan_id": plan_id},
+        values_dict={"$set": {"prompts": prompts}},
+        projection={"_id": False, "prompts": True},
+        return_policy=ReturnDocument.AFTER,
+    )
+    if not updated_plan:
+        raise HTTPException(status_code=408, detail="Plan not found")
+
+    return {
+        "status": True,
+        "new_prompt": prompts[-1],
+        "new_task": {
+            "title": new_task["title"],
+            "description": new_task["description"],
+            "score": new_task["score"],
+            "completed_at": None
+        }
+    }
+
 
 # ==========================
 #         task_done
