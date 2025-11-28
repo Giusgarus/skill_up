@@ -328,7 +328,62 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
 # ==========================
 #           retask
 # ==========================
-@router.post("/retask", status_code=200)
+@router.post(
+    "/retask",
+    status_code=200,
+    summary="Regenerate a single task from a new goal",
+    description=(
+        "Regenerates the content of a single task within an existing plan using a new user goal.  \n"
+        "- Validates the session token and the ownership of the plan/task.  \n"
+        "- Builds a conversation history from previous prompts and responses stored in the plan.  \n"
+        "- Calls the LLM service with the new goal and history to obtain a replacement task.  \n"
+        "- Updates the task title, description, difficulty and score, resetting its completion status.  \n"
+        "- Appends a note to the last stored plan prompt to record that the task has been modified."
+    ),
+    operation_id="retaskTask",
+    response_model=Dict[str, Any],
+    responses={
+        200: {
+            "description": (
+                "Task successfully regenerated.  \n"
+                "Returns a status flag, the updated prompt string and the new task payload."
+            )
+        },
+        401: {"model": ErrorResponse, "description": "Invalid or missing token."},
+        402: {
+            "model": ErrorResponse,
+            "description": "Missing Plan ID in the request payload.",
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Missing Task ID in the request payload.",
+        },
+        404: {
+            "model": ErrorResponse,
+            "description": "Task not found, not owned by the user, or already deleted.",
+        },
+        405: {
+            "model": ErrorResponse,
+            "description": "Plan not found, not owned by the user, or marked as deleted.",
+        },
+        406: {
+            "model": ErrorResponse,
+            "description": "Database error while updating the task with the new content.",
+        },
+        407: {
+            "model": ErrorResponse,
+            "description": "Plan has no prompts history while at least one prompt is expected.",
+        },
+        408: {
+            "model": ErrorResponse,
+            "description": "Plan not found while updating the prompts history.",
+        },
+        501: {
+            "model": ErrorResponse,
+            "description": "LLM service error while generating the new task.",
+        },
+    },
+)
 async def retask(payload: Retask) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
@@ -337,22 +392,15 @@ async def retask(payload: Retask) -> dict:
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     if plan_id is None:
-        raise HTTPException(status_code=402, detail="Invalid Plan ID")
+        raise HTTPException(status_code=402, detail="Missing Plan ID")
     if task_id is None:
-        raise HTTPException(status_code=403, detail="Invalid Task ID")
+        raise HTTPException(status_code=403, detail="Missing Task ID")
     
     # 1. Get the task
     task = db.find_one(
         table_name="tasks",
-        filters={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},
-        projection={
-            "_id": False,
-            "title": True,
-            "difficulty": True,
-            "description": True,
-            "score": True,
-            "completed_at": True
-        },
+        filters={"task_id": task_id, "user_id": user_id, "plan_id": plan_id, "deleted": False},
+        projection={"_id": False}
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Invalid task ID")
@@ -365,9 +413,6 @@ async def retask(payload: Retask) -> dict:
             "_id": False,
             "prompts": True,
             "responses": True,
-            "n_tasks": True,
-            "next_task_id": True,
-            "n_tasks_done": True,
             "completed_at": True,
         },
     )
@@ -377,18 +422,16 @@ async def retask(payload: Retask) -> dict:
     # 3. Create the history for the LLM
     prompts = plan.get("prompts") or []
     responses = plan.get("responses") or []
-    if prompts and responses:
-        history = {
-            "last_prompt": prompts[-1],
-            "last_response": responses[-1],
-        }
-    else:
-        history = {}
+    history = [
+        {"prompt": prompt, "response": response}
+        for prompt, response in zip(prompts, responses)
+        if prompt is not None or response is not None
+    ]
 
     # 3. Communication with the LLM server
     llm_payload = {
         "goal": new_goal,
-        "level": "0",  # Default to beginner
+        "level": "0",
         "history": history,
         "user_info": dh.get_user_info(user_id),
     }
@@ -398,30 +441,38 @@ async def retask(payload: Retask) -> dict:
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=501, detail=f"LLM service error: {err_msg}")
 
-    new_tasks_dict: Dict[str, Dict[str, Any]] = dict(llm_resp["result"]["tasks"])
-    date, new_task = next(iter(new_tasks_dict.items()))
+    result_payload: Dict[str, Any] = llm_resp.get("result") or {}
+    fallback_error = _extract_error_message(result_payload)
+    normalized_tasks = _normalize_tasks_or_throw(
+        result_payload.get("tasks"),
+        fallback_error=fallback_error,
+    )
+    _, new_task = normalized_tasks[0]
+    difficulty_value = CHALLENGES_DIFFICULTY_MAP.get(str(new_task.get("difficulty", "easy")).lower(), 1)
+    new_score = difficulty_value * 10
 
     # 4. Update task
-    updated_task = db.find_one_and_update(
+    updated_task = db.update_one(
         table_name="tasks",
         keys_dict={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},
         values_dict={
             "$set": {
                 "title": new_task["title"],
                 "description": new_task["description"],
-                "score": new_task["score"],
+                "difficulty": difficulty_value,
+                "score": new_score,
                 "completed_at": None
             }
-        },
-        projection={"_id": False, "title": True, "description": True, "score": True},
-        return_policy=ReturnDocument.AFTER,
+        }
     )
-    if not updated_task:
-        raise HTTPException(status_code=406, detail="Task not found")
+    if updated_task.matched_count == 0:
+        raise HTTPException(status_code=406, detail="Error while updating task")
     
     # 5. Update plan (append the prompt of the user in the last prompt of the plan)
     if not prompts:
-        raise HTTPException(status_code=407, detail="The plan hasn't prompts when should at least 1.")
+        raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
+
+    prompts = prompts[:-1] + [f"{prompts[-1]}\nTask {task_id} modified with: {new_goal}."]
     prompts = prompts[:-1] + [str(prompts[-1]) + f"\nTask {task_id} modificated with: {new_goal}."]
     updated_plan = db.find_one_and_update(
         table_name="plans",
@@ -439,8 +490,8 @@ async def retask(payload: Retask) -> dict:
         "new_task": {
             "title": new_task["title"],
             "description": new_task["description"],
-            "score": new_task["score"],
-            "completed_at": None
+            "score": new_score,
+            "completed_at": None,
         }
     }
 
@@ -876,7 +927,7 @@ async def get_llm_response(payload: Goal) -> dict:
     llm_payload = {
         "goal": user_goal,
         "level": "0",  # 0=beginner, 1=intermediate, 2=advanced
-        "history": {},  # empty because this is a new plan
+        "history": [],  # empty because this is a new plan
         "user_info": dh.get_user_info(user_id),
     }
     llm_resp = llm.get_llm_response(llm_payload)
@@ -1135,13 +1186,11 @@ async def replan(payload: Replan) -> dict:
     # 2. Create the history for the LLM
     prompts = plan.get("prompts") or []
     responses = plan.get("responses") or []
-    if prompts and responses:
-        history = {
-            "last_prompt": prompts[-1],
-            "last_response": responses[-1],
-        }
-    else:
-        history = {}
+    history = [
+        {"prompt": p, "response": r}
+        for p, r in zip(prompts, responses)
+        if p is not None or r is not None
+    ]
 
     # 3. Communication with the LLM server
     llm_payload = {
