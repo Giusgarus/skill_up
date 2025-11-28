@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import List, Optional, Dict, Any
+from fastapi import FastAPI, Request, HTTPException, Header
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -18,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 
+from utils import *
 # -----------------------
 # Logging (file + console)
 # -----------------------
@@ -171,144 +173,14 @@ class GenerateRequest(BaseModel):
             return "beginner"
         return str(v).lower()
 
-# -----------------------
-# Validation & Sanitization
-# -----------------------
-def validate_and_sanitize_input(goal: str, level: str, history: List[Dict[str, Any]]):
-    # 1. length + trivial checks handled by pydantic, but keep extra checks
-    
-    #################### WE SHOULD CHECK IF THIS LENGTH (500) IS RESTRICTIVE ENOUGH ##############
-    if len(goal) > 500:
-        return None, None, None, "Goal exceeds maximum length of 500 characters"
 
-    goal_lower = goal.lower()
+class ReplanTask(BaseModel):
+    goal: str = Field(description= "The goal or the plan the user wants to create in order to improve a skill or a habit", max_length=100)
+    level: str = Field("beginner", description= "The level of each task the user is provided", max_length=50) 
+    previous_task: str = Field(description="The title and description of the task the user wants to change", max_length=500)
+    llm_response: str = Field(description="The original LLM response in JSON format containing the list of the tasks", max_length=2500)
+    modification_reason: Optional[str] = Field("", description="The reason why the user wants to change the task", max_length=100)
 
-    # 2. prompt injection patterns
-    injection_patterns = [
-        r"ignore\s+(previous|above|all)\s+instructions?",
-        r"disregard\s+(previous|above|all)",
-        r"forget\s+(everything|previous|above)",
-        r"new\s+instructions?:",
-        r"system\s*:",
-        r"assistant\s*:",
-        r"override\s+",
-        r"act\s+as\s+",
-        r"pretend\s+(you are|to be)",
-        r"you\s+are\s+now",
-        r"jailbreak",
-        r"<\s*script",
-        r"</?\s*prompt\s*>",
-        r"{{.*}}",
-    ]
-
-    for pattern in injection_patterns:
-        if re.search(pattern, goal_lower, re.IGNORECASE):
-            logger.warning("Potential prompt injection detected: %s", pattern)
-            return None, None, None, "Invalid input detected. Please rephrase your goal."
-
-    # 3. malicious keywords
-    malicious_keywords = [
-        "hack", "exploit", "illegal", "drugs", "weapons",
-        "violence", "harm", "suicide", "self-harm", "prompt"
-    ]
-    suspicious_word_count = sum(1 for w in malicious_keywords if w in goal_lower)
-    if suspicious_word_count >= 2:
-        logger.warning("Suspicious content detected in goal")
-        return None, None, None, "Goal contains inappropriate content"
-
-    # 4. remove dangerous characters
-    sanitized_goal = re.sub(r'[^\w\s.,!?\-\'"()]', "", goal).strip()
-
-    # 5. level
-    valid_levels = ["beginner", "intermediate", "advanced"]
-    sanitized_level = level.lower()
-    if sanitized_level not in valid_levels:
-        sanitized_level = "beginner"
-
-    # 6. history sanitization
-    if not isinstance(history, list):
-        history = []
-    # If we have history we keep the last 20 requests by the user. I think we won't have that many!!!
-    if len(history) > 3:
-        history = history[-1:]
-
-    sanitized_history = []
-    for item in history:
-        if isinstance(item, dict):
-            safe_item = {
-                "title": str(item.get("title", ""))[:100],
-                "completed": bool(item.get("completed", False))
-            }
-            sanitized_history.append(safe_item)
-    
-    # client = language.LanguageServiceClient()
-    # document = language.Document(
-    #     content=goal,
-    #     type_=language.Document.Type.PLAIN_TEXT,
-    # )
-    # goal_toxicity_review = client.moderate_text(document=document)
-    # print(goal_toxicity_review)
-    
-    return sanitized_goal, sanitized_level, sanitized_history, None
-
-def validate_ai_response(response_data: dict):
-    # CORRECTED KEYS (Fixed spelling: 'challenges')
-    required_keys = ["challenges_list", "challenges_count"]
-    required_secondary_keys = ["challenge_title", "challenge_description", "difficulty"]
-    
-    length = 0
-    full_answer_txt = ""
-
-    # 1. Validate Top Level Structure
-    if not all(k in response_data for k in required_keys):
-        return False, "Invalid response structure: Missing top-level keys"
-    
-    if not isinstance(response_data["challenges_list"], list):
-        return False, "Invalid format: challenges_list must be a list"
-    
-    if not isinstance(response_data["challenges_count"], int):
-        return False, "Invalid format: challenges_count must be an integer"
-
-    # 2. Validate Each Challenge inside the list
-    for challenge in response_data["challenges_list"]:
-        # Check secondary keys existence
-        if not all(k in challenge for k in required_secondary_keys):
-            return False, "Invalid response structure: Missing secondary keys"
-
-        # Validate Data Types
-        if not isinstance(challenge["challenge_title"], str):
-            return False, "Invalid title format"
-        if not isinstance(challenge["challenge_description"], str):
-            return False, "Invalid description format"
-        if not isinstance(challenge["difficulty"], str):
-            return False, "Invalid difficulty format"
-
-        # Validate Values / Constraints
-    
-        # Difficulty fallback
-        if challenge["difficulty"] not in ["Easy", "Medium", "Hard"]:
-            challenge["difficulty"] = "Easy"
-
-        # Length Truncation (CRITICAL FIX: referencing 'challenge', not 'response_data')
-        if len(challenge["challenge_title"]) > 100:
-            challenge["challenge_title"] = challenge["challenge_title"][:100]
-        if len(challenge["challenge_description"]) > 200:
-            challenge["challenge_description"] = challenge["challenge_description"][:500]
-
-        # Accumulate text for safety check
-        length += len(challenge["challenge_title"]) + len(challenge["challenge_description"])
-        full_answer_txt += " " + (challenge["challenge_title"] + " " + challenge["challenge_description"]).lower()
-
-    if length > 2000: # Increased slightly to allow for multiple challenges
-        return False, "Response too lengthy"
-
-    # 3. Safety / XSS Check
-    dangerous_patterns = [r"<script", r"javascript:", r"onerror=", r"onclick=", r"eval\(", r"<iframe", r"prompt"]
-    for pattern in dangerous_patterns:
-        if re.search(pattern, full_answer_txt, re.IGNORECASE):
-            return False, "Response contains potentially harmful content"
-
-    return True, None
 import json
 from datetime import datetime, timedelta
 
@@ -348,119 +220,6 @@ def get_next_free_dates(start_date, count, free_days):
 
     # 4. RESULT
     print(json.dumps(final_tasks, indent=2))
-# -----------------------
-# Core AI Function
-# -----------------------
-def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
-    sanitized_goal, sanitized_level, sanitized_history, error = validate_and_sanitize_input(goal, level, history)
-    if error:
-        raise ValueError(error)
-
-    system_instruction = """You are 'SkillUp Coach,' an expert AI gamification engine designed to turn personal habits and corporate skills into an RPG-style adventure.
-
-    YOUR MISSION:
-    Create engaging, bite-sized mini-challenges based on the user's goal. Your tone must be motivating, clear, and energetic (like a game quest giver).
-
-    CRITICAL GUIDELINES:
-    1. JSON ONLY: Output must be raw JSON. Do NOT use markdown code blocks (```json).
-    2. SAFETY: No dangerous, illegal, or physically harmful quests.
-    3. VIABILITY: If the goal is impossible within the constraints, set "challenges_count" to 0 and "error_message" to "Quest invalid."
-    4. SCHEDULING: Challenges do not need to be daily. Space them out based on the user's availability.
-    5. DURATION: Challenges must take 5-30 minutes.
-
-    Prefer active verbs and concise instructions. Avoid filler words:
-    EXAMPLES OF PASSIVE vs. ACTIVE TRANSLATION:
-    - User Goal: "Learn Spanish"
-      BAD (Passive): "Read a list of kitchen vocabulary."
-      GOOD (Active): "The Labeling Quest: Write Spanish labels on sticky notes and attach them to 5 items in your kitchen."
-
-    - User Goal: "Get Fit"
-      BAD (Passive): "Watch a video on proper squat form."
-      GOOD (Active): "The Form Check: Record a 10-second video of yourself doing 5 squats, then watch it to self-correct your posture."
-
-    - User Goal: "Learn Marketing"
-      BAD (Passive): "Study how to write a hook."
-      GOOD (Active): "The Viral Hook: Write 3 different opening tweets for a hypothetical product launch."
-    
-    OUTPUT SCHEMA:
-    {
-        "challenges_count": <int>,
-        "challenges_list": [
-            {
-                "challenge_title": "Quest Name (Max 20 chars)",
-                "challenge_description": "Specific action instructions. 1-2 sentences.",
-                "duration_minutes": <int>,
-                "difficulty": "<Easy|Medium|Hard>",
-                "day_offset": <int> // 0 for today, 1 for tomorrow, etc.
-            }
-        ],
-        "error_message": null // or string if invalid
-    }
-    """
-    
-    user_prompt = f"""
-    **PLAYER PROFILE:**
-    - **Goal:** "{sanitized_goal}"
-    - **Current Level:** {sanitized_level}
-    - **History:** {json.dumps(sanitized_history) if sanitized_history else "New Player"}
-
-    **MISSION REQUEST:**
-    Generate a quest line starting from today.
-    1. **Relevance:** Directly help achieve the goal.
-    2. **Progression:** If history exists, increase difficulty slightly.
-    3. **Format:** Punchy titles, clear bullet points.
-    """
-
-    try:
-        logger.info("Generating challenge for sanitized goal: %s...", sanitized_goal[:50])
-
-        response = model.generate_content(
-            [system_instruction, user_prompt],
-            generation_config={
-                "temperature": 0.7,
-                "top_p": 0.95,
-                "max_output_tokens": 2524,
-                "response_mime_type": "application/json",
-            }
-        )
-
-        # Safety filter check / empty response
-        if not response or not hasattr(response, "text") or not response.text:
-            if hasattr(response, "prompt_feedback"):
-                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
-                raise ValueError("Request blocked by safety filters. Please rephrase your goal.")
-            raise ValueError("Empty response from AI model")
-
-        logger.info("Raw API response: %s...", (response.text[:400] if response.text else "None"))
-        json_text = response.text.strip()
-
-        # strip triple-backtick codeblocks if present
-        if json_text.startswith("```"):
-            parts = json_text.split("```")
-            if len(parts) >= 2:
-                json_text = parts[1]
-                if json_text.startswith("json"):
-                    json_text = json_text[4:]
-                json_text = json_text.strip()
-
-        challenge_data = json.loads(json_text)
-
-        is_valid, validation_error = validate_ai_response(challenge_data)
-        if not is_valid:
-            logger.error("AI response validation failed: %s", validation_error)
-            raise ValueError(f"Invalid AI response: {validation_error}")
-
-        logger.info("Challenge generated and validated successfully")
-        return challenge_data
-
-    except json.JSONDecodeError as e:
-        logger.error("JSON parsing error: %s", e)
-        logger.error("Response text: %s", response.text if response else "None")
-        raise ValueError("Failed to parse AI response")
-    except Exception as e:
-        logger.error("Error generating challenge: %s", str(e), exc_info=True)
-        raise
-
 # -----------------------
 # Helpers
 # -----------------------
@@ -502,6 +261,41 @@ async def handle_challenge_request(req: Request, payload: GenerateRequest):
         logger.error("Unexpected error in handle_challenge_request: %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate challenge. Please try again.")
     
+    
+@app.post("/replan-task")
+async def handle_replan_request(req: Request, payload: ReplanTask):
+    # client_ip = get_client_ip(req)
+    # if not check_rate_limit(client_ip):
+    #     logger.warning("Rate limit exceeded for IP: %s", client_ip)
+    #     raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+    try:
+        body = await req.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    import pprint; pprint.pprint(body)
+    # logger.info("Received request from IP: %s", client_ip)
+    try:
+        # Call core generator
+        new_task = replan_task(payload.goal, payload.level, payload.previous_task, payload.llm_response, payload.modification_reason)
+        logger.info("Successfully replaned task: %s", new_task.get("challenge_title", "N/A"))
+        return JSONResponse(content=new_task, status_code=200)
+    except ValueError as e:
+        logger.warning("Validation error: %s", str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Unexpected error in handle_challenge_request: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate challenge. Please try again.")
+# @app.post("/replan-task")
+# async def debug_replan(req: Request, authorization: str = Header(None)):
+#     try:
+#         body = await req.json()
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+#     # Log body to console for debugging
+#     import pprint; pprint.pprint(body)
+#     return JSONResponse({"ok": True, "received": body})
+
 
 # -----------------------
 # Custom exception handlers
@@ -532,3 +326,66 @@ if __name__ == "__main__":
     debug_mode = os.getenv("ENV", "production") != "production"
     logger.info("Starting FastAPI server on port %d, debug=%s", port, debug_mode)
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=debug_mode)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+#     {
+#   "goal": "I want to bulk up",
+#   "level": "beginner",
+#   "previous_task": {
+#       "task_id": 3,
+#       "plan_id": 1,
+#       "user_id": "9cd9970e-23f2-4dec-a4e4-8fbee5dd9b71",
+#       "title": "Push-Up Primer",
+#       "description": "Perform 3 sets of push-ups to failure (on knees or toes). Record your reps for each set and aim to improve next time.",
+#       "difficulty": 1,
+#       "score": 10,
+#       "deadline_date": "2025-12-01",
+#       "completed_at": null,
+#       "deleted": false
+#   },
+#   "llm_response": {
+#           "challenges_list": [
+#       {
+#         "challenge_title": "Protein Power-Up",
+#         "challenge_description": "Log your protein intake for one day. Aim for 0.7-1 gram per pound of body weight. Identify 3 new high-protein foods.",
+#         "duration_minutes": 15,
+#         "difficulty": "Easy",
+#         "day_offset": 0
+#       },
+#       {
+#         "challenge_title": "Squat Scroll",
+#         "challenge_description": "Watch a 5-minute video on proper bodyweight squat form. Practice 10 perfect bodyweight squats, focusing on depth and posture.",
+#         "duration_minutes": 10,
+#         "difficulty": "Easy",
+#         "day_offset": 1
+#       },
+#       {
+#         "challenge_title": "Meal Prep Map",
+#         "challenge_description": "Plan 3 protein-rich meals for the upcoming week. List ingredients needed for each, ensuring they fit your bulking goals.",
+#         "duration_minutes": 20,
+#         "difficulty": "Medium",
+#         "day_offset": 2
+#       },
+#       {
+#         "challenge_title": "Push-Up Primer",
+#         "challenge_description": "Perform 3 sets of push-ups to failure (on knees or toes). Record your reps for each set and aim to improve next time.",
+#         "duration_minutes": 10,
+#         "difficulty": "Easy",
+#         "day_offset": 3
+#       }
+#     ]
+    
+#   },
+#   "modification_reason": "Push-ups are really hard for me."
+# }
