@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import List, Optional, Dict, Any
-
+import pprint
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from dotenv import load_dotenv
@@ -30,6 +30,108 @@ model = genai.GenerativeModel(
     "gemini-2.5-flash",
     safety_settings=SAFETY_SETTINGS
 )
+
+
+def challenge_sanitization(goal: str):
+    # sanitized_goal, _, _, error = validate_and_sanitize_input(goal)
+    # if error:
+    #     raise ValueError(error)
+    # pprint.pprint(sanitized_goal)
+    system_instruction = """ You are an expert in Managing and scheduling tasks to help users achieve their personal development goals through gamified mini-challenges.
+    Your task is to find if the user indicates a time frame and days they prefer to completing the challenges.
+    The time can be explicit (e.g., "in 2 weeks", "by next month", "over the next 10 days") or they can indicate days in which they are more available (e.g., "on weekends", "on weekdays", "on Mondays and Wednesdays").
+    Output a JSON object with two fields: "time_frame_days" indicating the total number of days available to complete the challenges (integer), and "preferred_days" which is a list of strings indicating the preferred days of the week (e.g., ["Monday", "Wednesday"]).
+    If no specific time frame or preferred days are mentioned, return time_frame_days as 0 and preferred_days as an empty list.
+    Additionally, if the goal is not feasible within the indicated time frame or days, set time_frame_days to 0 and preferred_days to an empty list.
+    Finally, add a one or two words discription of the goal in a field called "goal_title".
+    OUTPUT SCHEMA:
+    {
+        time_frame_days: <int>,
+        preferred_days: [<str>, <str>, ...],
+        goal_title: "<str>"
+        
+    }
+    Let's handle this step by step.
+    """
+    user_prompt = f"""
+    **PLAYER PROFILE:**
+    - **Goal:** "{goal}"
+    """
+    
+    assistent = """ 
+    user_goal: "I want to improve my focus and productivity over the next 3 weeks focusing on weekdays."
+    Output: {
+        time_frame_days: 21,
+        preferred_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        goal_title: "Productivity"
+    }
+    
+    user_goal: "I want to learn Russian I am not free on Wednesdays and Fridays."
+    Output: {
+        time_frame_days: 0,
+        preferred_days: ["Monday", "Tuesday", "Thursday", "Saturday", "Sunday"],
+        goal_title: "Russian"
+    }
+    
+    user_goal: "I want to get fit in 14 days working out on weekends."
+    Output: {
+        time_frame_days: 14,
+        preferred_days: ["Saturday", "Sunday"],
+        goal_title: "fitness"
+    }
+    
+    user_goal: "I want to become a famous graphiti artist in one week."
+    Output: {
+        time_frame_days: 0,
+        preferred_days: [],
+        goal_title: "Graffiti"
+    }
+    """
+    try:
+        logger.info("Generating challenge for sanitized goal: %s...", goal[:50])
+
+        response = model.generate_content(
+            [system_instruction, user_prompt, assistent],
+            generation_config={
+                "temperature": 0.0,
+                "top_p": 0.95,
+                "max_output_tokens": 1500,
+                "response_mime_type": "application/json",
+            }
+        )
+        logger.info("Response received: %s", response)
+        # Safety filter check / empty response
+        if not response or not hasattr(response, "text") or not response.text:
+            if hasattr(response, "prompt_feedback"):
+                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
+                raise ValueError("Request blocked by safety filters. Please rephrase your goal.")
+            raise ValueError("Empty response from AI model")
+
+        # logger.info("Raw API response: %s...", (response.text[:100] if response.text else "None"))
+        json_text = response.text.strip()
+
+        # strip triple-backtick codeblocks if present
+        if json_text.startswith("```"):
+            parts = json_text.split("```")
+            if len(parts) >= 2:
+                json_text = parts[1]
+                if json_text.startswith("json"):
+                    json_text = json_text[4:]
+                json_text = json_text.strip()
+
+        challenge_data = json.loads(json_text)
+
+        logger.info("Challenge generated and validated successfully")
+        return challenge_data
+
+    except json.JSONDecodeError as e:
+        logger.error("JSON parsing error: %s", e)
+        logger.error("Response text: %s", response.text if response else "None")
+        raise ValueError("Failed to parse AI response")
+    except Exception as e:
+        logger.error("Error generating challenge: %s", str(e), exc_info=True)
+        raise
+
 # -----------------------
 # Core AI Function
 # -----------------------
@@ -39,7 +141,8 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     sanitized_goal, sanitized_level, sanitized_history, error = validate_and_sanitize_input(goal, level, history)
     if error:
         raise ValueError(error)
-
+    challenge_meta = challenge_sanitization(goal)
+    logger.info("Challenge meta extracted: %s", challenge_meta)
     system_instruction = """You are 'SkillUp Coach,' an expert AI gamification engine designed to turn personal habits and corporate skills into an RPG-style adventure.
 
     YOUR MISSION:
@@ -74,8 +177,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
                 "challenge_title": "Quest Name (Max 20 chars)",
                 "challenge_description": "Specific action instructions. 1-2 sentences.",
                 "duration_minutes": <int>,
-                "difficulty": "<Easy|Medium|Hard>",
-                "day_offset": <int> // 0 for today, 1 for tomorrow, etc.
+                "difficulty": "<Easy|Medium|Hard>"              
             }
         ],
         "error_message": null // or string if invalid
@@ -87,6 +189,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     - **Goal:** "{sanitized_goal}"
     - **Current Level:** {sanitized_level}
     - **History:** {json.dumps(sanitized_history) if sanitized_history else "New Player"}
+
 
     **MISSION REQUEST:**
     Generate a quest line starting from today.
@@ -135,7 +238,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
             raise ValueError(f"Invalid AI response: {validation_error}")
 
         logger.info("Challenge generated and validated successfully")
-        return challenge_data
+        return challenge_data, challenge_meta
 
     except json.JSONDecodeError as e:
         logger.error("JSON parsing error: %s", e)
@@ -197,6 +300,9 @@ def validate_and_sanitize_input(goal: str, level: str=None, history: List[Dict[s
     if sanitized_goal and not level and not history:
         return sanitized_goal, None, None, None
     
+    if level is None:
+        return sanitized_goal, None, None, None
+    
     # 5. level
     valid_levels = ["beginner", "intermediate", "advanced"]
     sanitized_level = level.lower()
@@ -218,14 +324,6 @@ def validate_and_sanitize_input(goal: str, level: str=None, history: List[Dict[s
                 "completed": bool(item.get("completed", False))
             }
             sanitized_history.append(safe_item)
-    
-    # client = language.LanguageServiceClient()
-    # document = language.Document(
-    #     content=goal,
-    #     type_=language.Document.Type.PLAIN_TEXT,
-    # )
-    # goal_toxicity_review = client.moderate_text(document=document)
-    # print(goal_toxicity_review)
     
     return sanitized_goal, sanitized_level, sanitized_history, None
 

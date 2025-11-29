@@ -212,9 +212,15 @@ async def handle_challenge_request(req: Request, payload: GenerateRequest):
     logger.info("Received request from IP: %s", client_ip)
     try:
         # Call core generator
-        challenge_data = generate_challenge(payload.goal, payload.level, [item.dict() for item in payload.history or []])
+        challenge_data, challenge_meta = generate_challenge(payload.goal, payload.level, [item.dict() for item in payload.history or []])
         logger.info("Successfully generated challenge: %s", challenge_data.get("challenge_title", "N/A"))
-        return JSONResponse(content=challenge_data, status_code=200)
+        return JSONResponse(
+            content={
+                "challenge_data": challenge_data,
+                "challenge_meta": challenge_meta,
+            },
+            status_code=200
+        )
     except ValueError as e:
         logger.warning("Validation error: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
