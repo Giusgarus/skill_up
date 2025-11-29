@@ -302,14 +302,14 @@ class _DayCell extends StatelessWidget {
     required this.medal,
     required this.isToday,
     required this.isHighlighted,
-    this.onLongPress,              // 👈 nuovo
+    this.onLongPress,
   });
 
   final DateTime date;
   final MedalType medal;
   final bool isToday;
   final bool isHighlighted;
-  final VoidCallback? onLongPress; // 👈 nuovo
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -322,22 +322,23 @@ class _DayCell extends StatelessWidget {
         : 'assets/icons/blank_star_icon.svg';
     final Color? medalTint = hasMedal ? medalTintForType(medal) : null;
 
-    final bool isTodayOnly = isToday && !isHighlighted;
-
-    final Color borderColor = isHighlighted
+    // colore testo (stile HomePage)
+    final Color dayTextColor = isHighlighted
         ? Colors.white
-        : isTodayOnly
-        ? Colors.white.withValues(alpha: 0.6)
-        : Colors.transparent;
+        : isToday
+        ? const Color(0xFFFFD89B) // giallino per oggi
+        : Colors.white;
+
+    // colori sfondo/bordo
+    final Color borderColor =
+    isHighlighted ? Colors.white : Colors.transparent;
 
     final Color bgColor = isHighlighted
         ? Colors.white.withValues(alpha: 0.16)
-        : isTodayOnly
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.transparent;
+        : Colors.transparent; // oggi NON ha highlight
 
     return GestureDetector(
-      onLongPress: onLongPress,     // 👈 qui
+      onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
@@ -351,15 +352,36 @@ class _DayCell extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              dayLabel,
-              style: const TextStyle(
-                fontFamily: 'FredokaOne',
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                fontStyle: FontStyle.italic,
-                color: Colors.white,
-              ),
+            // numero con bordino nero + riempimento colorato
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                // bordo nero (⚠️ niente const)
+                Text(
+                  dayLabel,
+                  style: TextStyle(
+                    fontFamily: 'FredokaOne',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    fontStyle: FontStyle.italic,
+                    foreground: Paint()
+                      ..style = PaintingStyle.stroke
+                      ..strokeWidth = 1.3
+                      ..color = Colors.black,
+                  ),
+                ),
+                // riempimento
+                Text(
+                  dayLabel,
+                  style: TextStyle(
+                    fontFamily: 'FredokaOne',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    fontStyle: FontStyle.italic,
+                    color: dayTextColor,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 2),
             SizedBox(
@@ -379,6 +401,7 @@ class _DayCell extends StatelessWidget {
     );
   }
 }
+
 
 class _StatisticsButton extends StatelessWidget {
   const _StatisticsButton({required this.onTap});

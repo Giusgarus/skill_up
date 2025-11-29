@@ -18,11 +18,13 @@ class GradientTextFieldCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const double radius = 26; // 👈 TONDO PERFETTO
+
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          width: 2,
+          width: 3,
           color: Colors.transparent,
         ),
         gradient: const LinearGradient(
@@ -34,38 +36,34 @@ class GradientTextFieldCard extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
       ),
-      child: Container(
-        margin: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
+      child: ClipRRect(   // 👈 TAGLIA PERFETTAMENTE GLI ANGOLI INTERNI
+        borderRadius: BorderRadius.circular(radius),
+        child: Container(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: TextField(
-          controller: controller,
-          autofocus: autofocus,
-          maxLines: maxLines,
-          minLines: minLines,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: InputDecoration(
-            hintText: hintText,
-            border: InputBorder.none,
-            hintStyle: const TextStyle(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: TextField(
+            controller: controller,
+            autofocus: autofocus,
+            maxLines: maxLines,
+            minLines: minLines,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: hintText,
+              border: InputBorder.none,
+              hintStyle: const TextStyle(
+                fontFamily: 'FiraCode',
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: Color(0x99000000),
+              ),
+            ),
+            style: const TextStyle(
               fontFamily: 'FiraCode',
               fontSize: 14,
               fontWeight: FontWeight.w400,
-              color: Color(0x99000000),
+              height: 1.3,
+              color: Colors.black,
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-          ),
-          style: const TextStyle(
-            fontFamily: 'FiraCode',
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-            height: 1.3,
-            color: Colors.black,
           ),
         ),
       ),

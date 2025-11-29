@@ -676,31 +676,29 @@ class _HomePageState extends State<HomePage> {
   int get _completionPercent => (_completionRatio * 100).round();
 
   int get _currentStreak {
-    // 0) Se l'utente non ha mai guadagnato alcuna medaglia (tutte none),
-    // lo streak è 0.
-    final hasAnyMedal = _medalRepository
-        .allMedals()
-        .values
-        .any((m) => m != MedalType.none);
+    // helper: normalizza il valore del repo (null -> none)
+    MedalType _medalFor(DateTime day) {
+      return _medalRepository.medalForDay(day) ?? MedalType.none;
+    }
 
-    if (!hasAnyMedal) {
+    final DateTime today = dateOnly(_today);
+
+    // 1) Se oggi non hai una medaglia, la streak è 0
+    //    (anche se ieri o giorni fa avevi fatto tutto).
+    if (_medalFor(today) == MedalType.none) {
       return 0;
     }
 
     int streak = 0;
-    DateTime day = dateOnly(_today);
+    DateTime day = today;
 
-    // 1) Se oggi non ha medaglia, proviamo a partire da ieri
-    if (_medalRepository.medalForDay(day) == MedalType.none) {
-      day = day.subtract(const Duration(days: 1));
-    }
-
-    // 2) Andiamo all'indietro finché troviamo giorni con medaglia
+    // 2) Conta quanti giorni CONSECUTIVI con medaglia ci sono
+    //    a partire da oggi andando indietro.
     while (!day.isBefore(_streakLowerBound)) {
-      final medal = _medalRepository.medalForDay(day);
+      final medal = _medalFor(day);
 
       if (medal == MedalType.none) {
-        break;
+        break; // giorno saltato -> streak si ferma qui
       }
 
       streak++;
