@@ -75,7 +75,7 @@ class Replan(Plan):
     new_goal: str = Field(..., description="New goal to regenerate the existing plan.")
 
 class Retask(Task):
-    new_goal: str = Field(..., description="New goal with which regenerate the task.")
+    modification_reason: str = Field(..., description="New prompt of the used with which regenerate the task.")
     
 class HardPlan(User):
     preset: str = Field(..., description="Preset key used to create a predefined plan.")
@@ -388,7 +388,8 @@ async def retask(payload: Retask) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
     task_id = payload.task_id
-    new_goal = payload.new_goal
+    goal = payload.goal
+    modification_reason = payload.modification_reason
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     if plan_id is None:
@@ -430,10 +431,12 @@ async def retask(payload: Retask) -> dict:
 
     # 3. Communication with the LLM server
     llm_payload = {
-        "goal": new_goal,
-        "level": "0",
+        "goal": str(history[-1]["prompt"]),
+        "level": plan.get("difficulty"),
         "history": history,
         "user_info": dh.get_user_info(user_id),
+        "previous_task": ,
+        "modification_reason": modification_reason
     }
     llm_resp = llm.get_llm_response(llm_payload)
     if not llm_resp.get("status"):
@@ -469,8 +472,7 @@ async def retask(payload: Retask) -> dict:
     # 5. Update plan (append the prompt of the user in the last prompt of the plan)
     if not prompts:
         raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
-    prompts = prompts[:-1] + [f"{prompts[-1]}\nTask {task_id} modified with: {new_goal}."]
-    prompts = prompts[:-1] + [str(prompts[-1]) + f"\nTask {task_id} modificated with: {new_goal}."]
+    prompts = prompts[:-1] + [f"{str(prompts[-1])}\nTask {task_id} modified with respect to this information: {new_goal}."]
     updated_plan = db.find_one_and_update(
         table_name="plans",
         keys_dict={"user_id": user_id, "plan_id": plan_id},
