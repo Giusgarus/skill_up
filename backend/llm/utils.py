@@ -175,7 +175,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
         "challenges_list": [
             {
                 "challenge_title": "Quest Name (Max 20 chars)",
-                "challenge_description": "Specific action instructions. 1-2 sentences.",
+                "challenge_description": "Specific action instructions. 2-3 sentences.",
                 "duration_minutes": <int>,
                 "difficulty": "<Easy|Medium|Hard>"              
             }
@@ -421,7 +421,7 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
     OUTPUT SCHEMA:
     {
         "challenge_title": "Quest Name (Max 20 chars)",
-        "challenge_description": "Specific action instructions. 1-2 sentences.",
+        "challenge_description": "Specific action instructions. 2-3 sentences.",
         "duration_minutes": <int>,
         "difficulty": "<Easy|Medium|Hard>",
         "day_offset": The same offset provided in the task the user wants to change.
