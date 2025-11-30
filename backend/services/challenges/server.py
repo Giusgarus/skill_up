@@ -440,12 +440,10 @@ async def retask(payload: Retask) -> dict:
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=501, detail=f"LLM service error: {err_msg}")
-
     result_payload: Dict[str, Any] = llm_resp.get("result") or {}
-    fallback_error = _extract_error_message(result_payload)
     normalized_tasks = _normalize_tasks_or_throw(
-        result_payload.get("tasks"),
-        fallback_error=fallback_error,
+        raw_tasks=result_payload.get("tasks"),
+        fallback_error=_extract_error_message(result_payload),
     )
     _, new_task = normalized_tasks[0]
     difficulty_value = CHALLENGES_DIFFICULTY_MAP.get(str(new_task.get("difficulty", "easy")).lower(), 1)
@@ -471,7 +469,6 @@ async def retask(payload: Retask) -> dict:
     # 5. Update plan (append the prompt of the user in the last prompt of the plan)
     if not prompts:
         raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
-
     prompts = prompts[:-1] + [f"{prompts[-1]}\nTask {task_id} modified with: {new_goal}."]
     prompts = prompts[:-1] + [str(prompts[-1]) + f"\nTask {task_id} modificated with: {new_goal}."]
     updated_plan = db.find_one_and_update(

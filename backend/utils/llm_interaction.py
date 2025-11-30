@@ -2,7 +2,7 @@ import json
 import os
 import logging
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Literal, Tuple, Dict, Any
 from datetime import timedelta
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -101,6 +101,37 @@ def validate_challenges(resp: Dict[str, Any]) -> Tuple[bool, str]:
     return True, ""
 
 
+def get_llm_task(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parameters
+    ----------
+    - payload (dict): the expected keys are:
+        - "goal" (str): the goal written by the user,
+        - "level" (int): the level of the user for that plan,
+        - "history" (list): history of the previous prompts/responses for that user,
+        - "user_info" (dict): the dictionary with all the fields in the users collection.
+
+    Returns
+    -------
+    - {"status": False, "error": "..."} --> if an error occurred.
+    - {"status": True, "result": {...}} --> if the call was successful. The expected structure of 
+    the 'result' field is the following (with date string in ISO format, use the backend.utils.timing 
+    library to parse/format):
+
+        {
+            "prompt": str, # the used prompt to get this tasks
+            "response": str, # the response got from the LLM
+            "tasks": {
+                "date1":  {"title": str, "description": str, "difficulty": str},
+                "date2":  {"title": str, "description": str, "difficulty": str},
+                ...
+            }
+        }
+
+    """
+    return {}
+
+
 def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parameters
@@ -113,8 +144,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     Returns
     -------
-    - {"ok": False, "error": "..."} --> if an error occurred.
-    - {"ok": True, "result": {...}} --> if the call was successful. The expected structure of 
+    - {"status": False, "error": "..."} --> if an error occurred.
+    - {"status": True, "result": {...}} --> if the call was successful. The expected structure of 
     the 'result' field is the following (with date string in ISO format, use the backend.utils.timing 
     library to parse/format):
 
@@ -131,15 +162,16 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
 
-    # 1. Robust Goal Extraction --> we check if 'goal' exists and is not None/Empty. If it is, we try 'prompt'.
-    goal_text = payload.get("goal") or payload.get("prompt")
+    # 1. Robust Goal Extraction
+    goal_text = payload.get("goal")
     goal = str(goal_text).strip() if goal_text else ""
 
     # 2. History Extraction -> the LLM service expects a list, so coerce/ignore invalid shapes.
-    history_data = payload.get("history")
-    history_list: list = []
-    if isinstance(history_data, list):
-        history_list = history_data
+    try:
+        history_list = list(payload.get("history"))
+    except:
+        history_list = []
+
     # 3. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
@@ -148,7 +180,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
     if not body["goal"]:
         logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal_text)
-        return {"ok": False, "error": "Empty goal/prompt provided"}
+        return {"status": False, "error": "Empty goal/prompt provided"}
     
     # 4. Prepare Headers --> include also the authentication token if available.
     headers = {"Content-Type": "application/json"}
@@ -164,27 +196,28 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         resp = session.post(url, json=body, timeout=LLM_TIMEOUT, headers=headers)
     except requests.RequestException as e:
         logger.error("Error contacting LLM server: %s", e, exc_info=True)
-        return {"ok": False, "error": f"LLM server unreachable: {str(e)}"}
+        return {"status": False, "error": f"LLM server unreachable: {str(e)}"}
     
     # 7. Handle response
     if resp.status_code != 200:
         content_snippet = (resp.text[:500] + "...") if resp.text else ""
         logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
-        return {"ok": False, "error": f"LLM server error ({resp.status_code})"}
+        return {"status": False, "error": f"LLM server error ({resp.status_code})"}
     try:
         result = resp.json()
     except ValueError:
         logger.error("LLM server returned non-json response: %s", resp.text[:500])
-        return {"ok": False, "error": "Invalid JSON from LLM server"}
+        return {"status": False, "error": "Invalid JSON from LLM server"}
     
     # 8. Check for errors in the result
     if isinstance(result, dict) and ("error" in result or "detail" in result):
         msg = result.get("error") or result.get("detail") or "LLM server reported an error"
-        return {"ok": False, "error": f"LLM server: {msg}"}
+        return {"status": False, "error": f"LLM server: {msg}"}
 
     # 9. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
-    if isinstance(result, dict) and "challenges_list" in result:
-        challenges = result.get("challenges_list") or []
+    challenges_data: dict | None = result.get("challenges_data") if isinstance(result, dict) else None
+    if challenges_data is not None:
+        challenges = challenges_data.get("challenges_list") or []
         tasks: dict[str, dict[str, Any]] = {}
         today = timing.now().date()
         for idx, ch in enumerate(challenges):
@@ -210,6 +243,6 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     is_valid, validation_error = validate_challenges(result)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
-        return {"ok": False, "error": f"Invalid LLM response: {validation_error}"}
+        return {"status": False, "error": f"Invalid LLM response: {validation_error}"}
     
     return {"status": True, "result": result}
