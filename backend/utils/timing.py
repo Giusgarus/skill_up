@@ -46,10 +46,16 @@ def weekday(day: date | dtime) -> str:
     dt = day if isinstance(day, dtime) else dtime.combine(day, dtime.min.time())
     return dt.strftime("%A")
 
-def sort_days(days: list[str]) -> list[str]:
+def sort_days(days: list[str], enable_offset_wrt_today: bool = False) -> list[str]:
     all_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    mask_days = [False for _ in range(7)]
-    for i, day in enumerate(all_days):
-        if day in days:
-            mask_days[i] = True
-    return [all_days[i] for i, is_in in enumerate(mask_days) if is_in]
+    wanted_days = {day.title() for day in days}
+    if not enable_offset_wrt_today:
+        return [day for day in all_days if day in wanted_days]
+    today_idx = now().weekday() # Monday=0
+    ordered: list[str] = []
+    for offset in range(7):
+        idx = (today_idx + offset) % 7
+        day = all_days[idx]
+        if day in wanted_days:
+            ordered.append(day)
+    return ordered
