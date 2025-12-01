@@ -272,8 +272,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
     result = response.get("result") or {}
-    challenges_data: dict | None = result.get("challenges_data") if isinstance(result, dict) else None
-    challenges_meta: dict | None = result.get("challenges_meta") if isinstance(result, dict) else None
+    challenges_data: dict | None = result.get("challenges_data")
+    challenges_meta: dict | None = result.get("challenges_meta")
     if challenges_data is not None and challenges_meta is not None:
         challenges = challenges_data.get("challenges_list") or []
         available_days: list = challenges_meta.get("preferred_days") or []
@@ -296,13 +296,6 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "description": desc,
                 "difficulty": diff
             }
-        converted = {
-            "prompt": body["goal"],
-            "response": result,
-            "tasks": tasks,
-            "n_tasks": len(tasks),
-            "error_message": result.get("error_message"),
-        }
     else:
         if challenges_meta is None:
             error_msg = f"LLM response has the field 'challenge_meta' as None: {challenges_meta}"
