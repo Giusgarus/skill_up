@@ -696,17 +696,17 @@ def test_retask_updates_task_and_prompt(backend_app):
     original_prompts = db["plans"].find_one({"plan_id": 1})["prompts"]
     assert len(original_prompts) == 1
 
-    new_goal = "new retask goal"
+    modification_reason = "new retask goal"
     resp = client.post(
         "/services/challenges/retask",
-        json={"token": token, "plan_id": 1, "task_id": 0, "modification_reason": new_goal},
+        json={"token": token, "plan_id": 1, "task_id": 0, "medal_taken": None, "modification_reason": modification_reason},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] is True
     assert body["new_task"]["title"].startswith("Replan Task 0")
     assert body["new_task"]["score"] == 50
-    assert body["new_prompt"].endswith(f"Task 0 modificated with: {new_goal}.")
+    assert body["new_prompt"].endswith(f"Task 0 modificated with: {modification_reason}.")
 
     task_doc = db["tasks"].find_one({"plan_id": 1, "task_id": 0})
     assert task_doc["title"] == body["new_task"]["title"]

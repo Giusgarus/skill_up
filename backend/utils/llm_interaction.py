@@ -119,7 +119,7 @@ def communicate(url: str, body: dict, headers: dict):
         resp = session.post(url, json=body, timeout=LLM_TIMEOUT, headers=headers)
     except requests.RequestException as e:
         logger.error("Error contacting LLM server: %s", e, exc_info=True)
-        return {"status": False, "error": f"LLM server unreachable: {str(e)}"}
+        return {"status": False, "error": f"Server unreachable: {str(e)}"}
     
     # 3. Handle response
     if resp.status_code != 200:
@@ -178,15 +178,14 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
     level = str(payload.get("level", "beginner")).lower()
     history_list = payload.get("history") if isinstance(payload.get("history"), list) else []
-    previous_task = payload.get("previous_task")
+    previous_task = str(payload.get("previous_task"))
 
     # 2. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
         "level": level,
-        "history": history_list,
         "previous_task": previous_task,
-        "last_prompt": history_list[-1]["prompt"] if history_list else "",
+        "llm_response": history_list[-1]["response"] if history_list else "",
         "modification_reason": payload.get("modification_reason")
     }
 

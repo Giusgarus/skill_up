@@ -408,7 +408,7 @@ async def retask(payload: Retask) -> dict:
             "score": True
         }
     )
-    if task is None:
+    if not task or task is None:
         raise HTTPException(status_code=404, detail="Invalid task ID")
 
     # 2. Get the plan
@@ -422,7 +422,7 @@ async def retask(payload: Retask) -> dict:
             "completed_at": True,
         },
     )
-    if plan is None:
+    if not plan or plan is None:
         raise HTTPException(status_code=405, detail="Invalid plan ID")
     
     # 3. Create the history for the LLM
@@ -908,7 +908,7 @@ def report(payload: Report) -> dict:
         505: {"model": ErrorResponse, "description": "Database error while creating the plan."},
     },
 )
-async def get_llm_response(payload: Goal) -> dict:
+async def get_prompt(payload: Goal) -> dict:
     token = payload.token
     user_goal = payload.goal
 
