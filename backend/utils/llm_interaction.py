@@ -266,12 +266,11 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         headers["Authorization"] = f"Bearer {LLM_SERVICE_TOKEN}"
 
     # 4. Get the result by the LLM server
-    response = communicate(url, body, headers)
-    if not response["status"] and "error" in response:
-        return {"status": False, "error": f"LLM server: {response.get('error')}"}
+    result = communicate(url, body, headers)
+    if not result["status"] and "error" in result:
+        return {"status": False, "error": f"LLM server: {result.get('error')}"}
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
-    result = response.get("result") or {}
     challenges_data: dict | None = result.get("challenges_data")
     challenges_meta: dict | None = result.get("challenges_meta")
     if challenges_data is not None and challenges_meta is not None:

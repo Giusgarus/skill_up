@@ -1203,7 +1203,7 @@ async def replan(payload: Replan) -> dict:
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
-
+    
     result_payload = llm_resp.get("result") or {}
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
