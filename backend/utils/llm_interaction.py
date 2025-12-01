@@ -298,9 +298,9 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             }
     else:
         if challenges_meta is None:
-            error_msg = f"LLM response has the field 'challenge_meta' as None: {challenges_meta}"
+            error_msg = f"LLM response has the field 'challenge_meta' as None: {result}"
         else:
-            error_msg = f"LLM response has the field 'challenge_data' as None: {challenges_data}"
+            error_msg = f"LLM response has the field 'challenge_data' as None: {result}"
         logger.error(error_msg)
         return {"status": False, "error": error_msg}
     
