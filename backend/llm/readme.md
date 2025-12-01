@@ -11,7 +11,7 @@ python -m uvicorn gen_ai_response:app --reload --port 8001
 
 
 #### The Structure of the LLM output 
-Now the function returns the following: 
+The `/generate-challenge` route returns the following: 
 ```python
 @app.post("/generate-challenge")
 async def handle_challenge_request(req: Request, payload: GenerateRequest):
@@ -47,4 +47,22 @@ So this will be something like this:
             
         }
     }
+```
+
+
+The `/replan-task` route returns the following: 
+```python
+@app.post("/replan-task")
+async def handle_challenge_request(req: Request, payload: GenerateRequest):
+    ...
+    return JSONResponse(
+        content={
+            "challenge_title": "Quest Name (Max 20 chars)",
+            "challenge_description": "Specific action instructions. 2-3 sentences.",
+            "duration_minutes": <int>,
+            "difficulty": "<Easy|Medium|Hard>",
+            "day_offset": The same offset provided in the task the user wants to change.
+        },
+        status_code=200
+    )
 ```
