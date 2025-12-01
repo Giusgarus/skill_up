@@ -294,7 +294,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             tasks[date_str] = {
                 "title": title,
                 "description": desc,
-                "difficulty": diff,
+                "difficulty": diff
             }
         converted = {
             "prompt": body["goal"],
@@ -303,9 +303,15 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             "n_tasks": len(tasks),
             "error_message": result.get("error_message"),
         }
-        return {"status": True, "result": converted}
+    else:
+        if challenges_meta is None:
+            error_msg = f"LLM response has the field 'challenge_meta' as None: {challenges_meta}"
+        else:
+            error_msg = f"LLM response has the field 'challenge_data' as None: {challenges_data}"
+        logger.error(error_msg)
+        return {"status": False, "error": error_msg}
 
-    # 6. Legacy validation path
+    # 6. Validation of the tasks
     is_valid, validation_error = validate_challenges(result)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
