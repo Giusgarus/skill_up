@@ -41,7 +41,7 @@ def challenge_sanitization(goal: str):
     Your task is to find if the user indicates a time frame and days they prefer to completing the challenges.
     The time can be explicit (e.g., "in 2 weeks", "by next month", "over the next 10 days") or they can indicate days in which they are more available (e.g., "on weekends", "on weekdays", "on Mondays and Wednesdays").
     Output a JSON object with two fields: "time_frame_days" indicating the total number of days available to complete the challenges (integer), and "preferred_days" which is a list of strings indicating the preferred days of the week (e.g., ["Monday", "Wednesday"]).
-    If no specific time frame or preferred days are mentioned, return time_frame_days as 0 and preferred_days as an empty list.
+    If no specific time frame or preferred days are mentioned, return time_frame_days as 0 and preferred_days as a list of all the days of the week.
     Additionally, if the goal is not feasible within the indicated time frame or days, set time_frame_days to 0 and preferred_days to an empty list.
     Finally, add a one or two words discription of the goal in a field called "goal_title".
     OUTPUT SCHEMA:
@@ -83,7 +83,7 @@ def challenge_sanitization(goal: str):
     user_goal: "I want to become a famous graphiti artist in one week."
     Output: {
         time_frame_days: 0,
-        preferred_days: [],
+        preferred_days: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday],
         goal_title: "Graffiti"
     }
     """
@@ -95,7 +95,7 @@ def challenge_sanitization(goal: str):
             generation_config={
                 "temperature": 0.0,
                 "top_p": 0.95,
-                "max_output_tokens": 1500,
+                "max_output_tokens": 3000,
                 "response_mime_type": "application/json",
             }
         )
@@ -206,7 +206,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 2524,
+                "max_output_tokens": 5000,
                 "response_mime_type": "application/json",
             }
         )
