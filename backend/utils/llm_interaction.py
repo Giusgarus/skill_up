@@ -272,11 +272,11 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
     result = response.get("result") or {}
-    challenges_data: dict | None = result.get("challenges_data")
-    challenges_meta: dict | None = result.get("challenges_meta")
-    if challenges_data is not None and challenges_meta is not None:
-        challenges = challenges_data.get("challenges_list") or []
-        available_days: list = challenges_meta.get("preferred_days") or []
+    challenge_data: dict | None = result.get("challenge_data")
+    challenge_meta: dict | None = result.get("challenge_meta")
+    if challenge_data is not None and challenge_meta is not None:
+        challenges = challenge_data.get("challenges_list") or []
+        available_days: list = challenge_meta.get("preferred_days") or []
         sorted_available_days = []
         tasks: dict[str, dict[str, Any]] = {}
         current_day = timing.now().date()
@@ -297,7 +297,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "difficulty": diff
             }
     else:
-        if challenges_meta is None:
+        if challenge_meta is None:
             error_msg = f"LLM response has the field 'challenge_meta' as None: {result}"
         else:
             error_msg = f"LLM response has the field 'challenge_data' as None: {result}"
@@ -308,8 +308,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         "status": True,
         "result": {
             "tasks": tasks,
-            "time_frame_days": challenges_meta.get("time_frame_days"),
-            "preferred_days": challenges_meta.get("preferred_days"),
-            "goal_title": challenges_meta.get("goal_title")
+            "time_frame_days": challenge_meta.get("time_frame_days"),
+            "preferred_days": challenge_meta.get("preferred_days"),
+            "goal_title": challenge_meta.get("goal_title")
         }
     }
