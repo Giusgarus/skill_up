@@ -388,7 +388,6 @@ async def retask(payload: Retask) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
     task_id = payload.task_id
-    goal = payload.goal
     modification_reason = payload.modification_reason
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
@@ -401,7 +400,13 @@ async def retask(payload: Retask) -> dict:
     task = db.find_one(
         table_name="tasks",
         filters={"task_id": task_id, "user_id": user_id, "plan_id": plan_id, "deleted": False},
-        projection={"_id": False}
+        projection={
+            "_id": False, 
+            "title": True,
+            "description": True,
+            "difficulty": True,
+            "score": True
+        }
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Invalid task ID")
@@ -431,40 +436,35 @@ async def retask(payload: Retask) -> dict:
 
     # 3. Communication with the LLM server
     llm_payload = {
-        "goal": str(history[-1]["prompt"]),
+        "goal": prompts[-1],
         "level": plan.get("difficulty"),
         "history": history,
         "user_info": dh.get_user_info(user_id),
-        "previous_task": ,
+        "previous_task": task,
         "modification_reason": modification_reason
     }
-    llm_resp = llm.get_llm_response(llm_payload)
-    if not llm_resp.get("status"):
-        err_msg = llm_resp.get("error", "Unknown error from LLM service")
+    response = llm.get_llm_retask_response(llm_payload)
+    if not response.get("status"):
+        err_msg = response.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=501, detail=f"LLM service error: {err_msg}")
-    result_payload: Dict[str, Any] = llm_resp.get("result") or {}
-    normalized_tasks = _normalize_tasks_or_throw(
-        raw_tasks=result_payload.get("tasks"),
-        fallback_error=_extract_error_message(result_payload),
-    )
-    _, new_task = normalized_tasks[0]
-    difficulty_value = CHALLENGES_DIFFICULTY_MAP.get(str(new_task.get("difficulty", "easy")).lower(), 1)
-    new_score = difficulty_value * 10
 
     # 4. Update task
+    result: Dict[str, Any] = response.get("result") or {}
+    normalized_tasks = _normalize_tasks_or_throw(raw_tasks=[result])
+    _, new_task = normalized_tasks[0]
+    new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(new_task.get("difficulty", "easy")).lower(), 1)
+    new_task = {
+        "title": new_task["challenge_title"],
+        "description": new_task["challenge_description"],
+        "difficulty": new_difficulty,
+        "score": new_difficulty * 10,
+        "completed_at": None
+    }
     updated_task = db.update_one(
         table_name="tasks",
         keys_dict={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},
-        values_dict={
-            "$set": {
-                "title": new_task["title"],
-                "description": new_task["description"],
-                "difficulty": difficulty_value,
-                "score": new_score,
-                "completed_at": None
-            }
-        }
+        values_dict={"$set": new_task}
     )
     if updated_task.matched_count == 0:
         raise HTTPException(status_code=406, detail="Error while updating task")
@@ -472,7 +472,7 @@ async def retask(payload: Retask) -> dict:
     # 5. Update plan (append the prompt of the user in the last prompt of the plan)
     if not prompts:
         raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
-    prompts = prompts[:-1] + [f"{str(prompts[-1])}\nTask {task_id} modified with respect to this information: {new_goal}."]
+    prompts = prompts[:-1] + [f"{str(prompts[-1])}\nTask {task_id} modified with respect to this information: {modification_reason}."]
     updated_plan = db.find_one_and_update(
         table_name="plans",
         keys_dict={"user_id": user_id, "plan_id": plan_id},
@@ -486,12 +486,7 @@ async def retask(payload: Retask) -> dict:
     return {
         "status": True,
         "new_prompt": prompts[-1],
-        "new_task": {
-            "title": new_task["title"],
-            "description": new_task["description"],
-            "score": new_score,
-            "completed_at": None,
-        }
+        "new_task": new_task
     }
 
 

@@ -699,7 +699,7 @@ def test_retask_updates_task_and_prompt(backend_app):
     new_goal = "new retask goal"
     resp = client.post(
         "/services/challenges/retask",
-        json={"token": token, "plan_id": 1, "task_id": 0, "new_goal": new_goal},
+        json={"token": token, "plan_id": 1, "task_id": 0, "modification_reason": new_goal},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -726,7 +726,7 @@ def test_retask_requires_existing_task(backend_app):
 
     resp = client.post(
         "/services/challenges/retask",
-        json={"token": token, "plan_id": 99, "task_id": 0, "new_goal": "new retask goal"},
+        json={"token": token, "plan_id": 99, "task_id": 0, "modification_reason": "new retask goal"},
     )
     assert resp.status_code == 404
 

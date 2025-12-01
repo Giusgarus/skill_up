@@ -107,18 +107,7 @@ def communicate(url: str, body: dict, headers: dict):
     -------
     - {"status": False, "error": "..."} --> if an error occurred.
     - {"status": True, "result": {...}} --> if the call was successful. The expected structure of 
-    the 'result' field is the following (with date string in ISO format, use the backend.utils.timing 
-    library to parse/format):
-
-        {
-            "prompt": str, # the used prompt to get this tasks
-            "response": str, # the response got from the LLM
-            "tasks": {
-                "date1":  {"title": str, "description": str, "difficulty": str},
-                "date2":  {"title": str, "description": str, "difficulty": str},
-                ...
-            }
-        }
+    the 'result' field depends by the type of request done.
     '''
 
     # 1. Create session
@@ -146,7 +135,7 @@ def communicate(url: str, body: dict, headers: dict):
     return {"status": True, "result": result}
 
 
-def get_llm_retask_response(payload: Dict[str, Any], target: Literal["plan","task"] = "plan") -> Dict[str, Any]:
+def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parameters
     ----------
@@ -183,18 +172,20 @@ def get_llm_retask_response(payload: Dict[str, Any], target: Literal["plan","tas
         }
 
     """
-    url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
+    url = LLM_SERVER_URL.rstrip("/") + "/replan-task"
 
     # 1. Data extraction
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
     level = str(payload.get("level", "beginner")).lower()
     history_list = payload.get("history") if isinstance(payload.get("history"), list) else []
+    previous_task = payload.get("previous_task")
 
     # 2. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
         "level": level,
         "history": history_list,
+        "previous_task": previous_task,
         "last_prompt": history_list[-1]["prompt"] if history_list else "",
         "modification_reason": payload.get("modification_reason")
     }
@@ -206,19 +197,13 @@ def get_llm_retask_response(payload: Dict[str, Any], target: Literal["plan","tas
 
     # 4. Communication with the LLM server
     response = communicate(url, body, headers)
-    result = response["result"]
     if not response["status"] and "error" in response:
         return {"status": False, "error": f"LLM server: {response.get('error')}"}
+    result = response.get("result", {})
     if isinstance(result, dict) and ("error" in result or "detail" in result):
         msg = result.get("error") or result.get("detail") or "LLM server reported an error"
         return {"status": False, "error": f"LLM server: {msg}"}
     
-    # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
-    challenges_data: dict | None = result.get("challenges_data") if isinstance(result, dict) else None
-    if challenges_data is not None:
-        ########### MODIFY THE "RETASKED" TASK ###########
-        pass
-
     return {"status": True, "result": result}
 
 
