@@ -267,7 +267,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 4. Get the result by the LLM server
     response = communicate(url, body, headers)
-    if not response["status"] and "error" in response:
+    if not response["status"]:
         return {"status": False, "error": f"LLM server: {response.get('error')}"}
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
