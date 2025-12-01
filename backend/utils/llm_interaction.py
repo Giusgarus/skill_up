@@ -207,7 +207,7 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": True, "result": result}
 
 
-def get_llm_response(payload: Dict[str, Any], target: Literal["plan","task"] = "plan") -> Dict[str, Any]:
+def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parameters
     ----------
