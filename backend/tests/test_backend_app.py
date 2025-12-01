@@ -150,15 +150,15 @@ def backend_app(monkeypatch):
     def fake_llm_retask_response(payload: dict):
         goal_text = payload.get("goal") or "goal"
         llm_calls.append({"type": "retask", **payload})
-        date_key = (today + timedelta(days=10)).isoformat()
-        task_payload = {
-            "title": "LLM Retask Title",
-            "description": "LLM Retask Description",
-            "challenge_title": "Retask Task 0 title",
-            "challenge_description": "Retask Task 0 description",
-            "difficulty": "easy",
+        return {
+            "status": True,
+            "result": {
+                "challenge_title": "Retask Task 0 title",
+                "challenge_description": "Retask Task 0 description",
+                "difficulty": "easy",
+                "deadline_date": (today + timedelta(days=10)).isoformat(),
+            },
         }
-        return {"status": True, "result": (date_key, task_payload)}
 
     monkeypatch.setattr(llm_interaction, "get_llm_retask_response", fake_llm_retask_response)
     monkeypatch.setattr(challenges_server.llm, "get_llm_retask_response", fake_llm_retask_response)

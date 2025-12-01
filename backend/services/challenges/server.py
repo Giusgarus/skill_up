@@ -451,14 +451,13 @@ async def retask(payload: Retask) -> dict:
 
     # 4. Update task
     result: Dict[str, Any] = response.get("result") or {}
-    normalized_tasks = _normalize_tasks_or_throw(raw_tasks=[result])
-    _, new_task = normalized_tasks[0]
-    new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(new_task.get("difficulty", "easy")).lower(), 1)
+    new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(result.get("difficulty", "easy")).lower(), 1)
     new_task = {
-        "title": new_task["challenge_title"],
-        "description": new_task["challenge_description"],
+        "title": result["challenge_title"],
+        "description": result["challenge_description"],
         "difficulty": new_difficulty,
         "score": new_difficulty * 10,
+        "deadline_date": result["deadline_date"],
         "completed_at": None
     }
     updated_task = db.update_one(

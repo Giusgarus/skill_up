@@ -266,19 +266,28 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         headers["Authorization"] = f"Bearer {LLM_SERVICE_TOKEN}"
 
     # 4. Get the result by the LLM server
-    result = communicate(url, body, headers)
-    if isinstance(result, dict) and ("error" in result or "detail" in result):
-        msg = result.get("error") or result.get("detail") or "LLM server reported an error"
-        return {"status": False, "error": f"LLM server: {msg}"}
+    response = communicate(url, body, headers)
+    if not response["status"] and "error" in response:
+        return {"status": False, "error": f"LLM server: {response.get('error')}"}
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
+    result = response.get("result") or {}
     challenges_data: dict | None = result.get("challenges_data") if isinstance(result, dict) else None
-    if challenges_data is not None:
+    challenges_meta: dict | None = result.get("challenges_meta") if isinstance(result, dict) else None
+    if challenges_data is not None and challenges_meta is not None:
         challenges = challenges_data.get("challenges_list") or []
+        available_days: list = challenges_meta.get("preferred_days") or []
+        sorted_available_days = []
         tasks: dict[str, dict[str, Any]] = {}
-        today = timing.now().date()
+        current_day = timing.now().date()
         for idx, ch in enumerate(challenges):
-            date_str = str(today) ############# MODIFY WITH THE SCHEDULED VERSION OF THE DATES
+            if not sorted_available_days:
+                sorted_available_days = timing.sort_days(available_days)
+            to_match_day = sorted_available_days.pop(0)
+            while timing.weekday(current_day) != to_match_day:
+                next_day = timing.next_day(current_day)
+                current_day = next_day
+            date_str = str(current_day)
             title = ch.get("challenge_title") or f"Challenge {idx+1}"
             desc = ch.get("challenge_description") or ""
             diff = str(ch.get("difficulty") or "easy")
