@@ -28,7 +28,7 @@ def next_day(day: date | dtime) -> date | dtime:
     -------
     ISO string for the following day.
     """
-    if isinstance(day, datetime):
+    if isinstance(day, dtime):
         return day + timedelta(days=1)
     return (dtime.combine(day, dtime.min.time()) + timedelta(days=1)).date()
 
@@ -43,7 +43,7 @@ def weekday(day: date | dtime) -> str:
     -------
     Weekday name (English) for the given day.
     """
-    dt = day if isinstance(day, datetime) else dtime.combine(day, dtime.min.time())
+    dt = day if isinstance(day, dtime) else dtime.combine(day, dtime.min.time())
     return dt.strftime("%A")
 
 def sort_days(days: list[str]) -> list[str]:
