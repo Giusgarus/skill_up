@@ -247,8 +247,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     url = LLM_SERVER_URL.rstrip("/") + "/generate-challenge"
 
     # 1. Robust Data Extraction
-    goal_text = payload.get("goal")
-    goal = str(goal_text).strip() if goal_text else ""
+    goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
     level = str(payload.get("level", "beginner")).lower()
     history_list = payload.get("history") if isinstance(payload.get("history"), list) else []
 
@@ -259,7 +258,7 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         "history": history_list,
     }
     if not body["goal"]:
-        logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal_text)
+        logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal)
         return {"status": False, "error": "Empty goal/prompt provided"}
     
     # 3. Prepare Headers --> include also the authentication token if available.
