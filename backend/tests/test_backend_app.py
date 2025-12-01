@@ -128,6 +128,9 @@ def backend_app(monkeypatch):
         if "replan" in goal_text.lower() or "new" in goal_text.lower():
             diffs = ("hard", "medium")
             prefix = "Replan"
+        elif "retask" in goal_text.lower():
+            diffs = ("easy", "hard")
+            prefix = "Retask"
         else:
             diffs = ("easy", "medium")
             prefix = "Plan"
@@ -142,6 +145,23 @@ def backend_app(monkeypatch):
         }
 
     monkeypatch.setattr(llm_interaction, "get_llm_response", fake_llm_response)
+    monkeypatch.setattr(challenges_server.llm, "get_llm_response", fake_llm_response)
+
+    def fake_llm_retask_response(payload: dict):
+        goal_text = payload.get("goal") or "goal"
+        llm_calls.append({"type": "retask", **payload})
+        date_key = (today + timedelta(days=10)).isoformat()
+        task_payload = {
+            "title": "LLM Retask Title",
+            "description": "LLM Retask Description",
+            "challenge_title": "Retask Task 0 title",
+            "challenge_description": "Retask Task 0 description",
+            "difficulty": "easy",
+        }
+        return {"status": True, "result": (date_key, task_payload)}
+
+    monkeypatch.setattr(llm_interaction, "get_llm_retask_response", fake_llm_retask_response)
+    monkeypatch.setattr(challenges_server.llm, "get_llm_retask_response", fake_llm_retask_response)
 
     with TestClient(main.app) as client:
         yield {"client": client, "db": mock_db, "llm_calls": llm_calls, "db_calls": db_calls}
@@ -690,33 +710,40 @@ def test_plan_delete_marks_plan_and_active_list(backend_app):
 def test_retask_updates_task_and_prompt(backend_app):
     client = backend_app["client"]
     db = backend_app["db"]
+    llm_calls = backend_app["llm_calls"]
     token = register_user(client, "retasker")["token"]
     create_plan(client, token, goal="retask original goal")
 
     original_prompts = db["plans"].find_one({"plan_id": 1})["prompts"]
     assert len(original_prompts) == 1
 
-    modification_reason = "new retask goal"
+    modification_reason = "retask replacement goal"
     resp = client.post(
         "/services/challenges/retask",
-        json={"token": token, "plan_id": 1, "task_id": 0, "medal_taken": None, "modification_reason": modification_reason},
+        json={"token": token, "plan_id": 1, "task_id": 0, "modification_reason": modification_reason},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] is True
-    assert body["new_task"]["title"].startswith("Replan Task 0")
-    assert body["new_task"]["score"] == 50
-    assert body["new_prompt"].endswith(f"Task 0 modificated with: {modification_reason}.")
+    assert body["new_task"]["title"].startswith("Retask Task 0")
+    assert body["new_task"]["score"] == 10
+    assert body["new_prompt"].endswith(
+        f"Task 0 modified with respect to this information: {modification_reason}."
+    )
 
     task_doc = db["tasks"].find_one({"plan_id": 1, "task_id": 0})
     assert task_doc["title"] == body["new_task"]["title"]
     assert task_doc["description"] == body["new_task"]["description"]
-    assert task_doc["score"] == 50
+    assert task_doc["score"] == 10
     assert task_doc["completed_at"] is None
 
     plan_doc = db["plans"].find_one({"plan_id": 1})
     assert len(plan_doc["prompts"]) == len(original_prompts)
     assert plan_doc["prompts"][-1] == body["new_prompt"]
+    assert any(
+        call.get("type") == "retask" and call.get("modification_reason") == modification_reason
+        for call in llm_calls
+    )
 
 
 def test_retask_requires_existing_task(backend_app):
@@ -726,7 +753,7 @@ def test_retask_requires_existing_task(backend_app):
 
     resp = client.post(
         "/services/challenges/retask",
-        json={"token": token, "plan_id": 99, "task_id": 0, "modification_reason": "new retask goal"},
+        json={"token": token, "plan_id": 99, "task_id": 0, "modification_reason": "retask replacement goal"},
     )
     assert resp.status_code == 404
 
