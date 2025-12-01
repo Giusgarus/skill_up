@@ -282,7 +282,10 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         current_day = timing.now().date()
         for idx, ch in enumerate(challenges):
             if not sorted_available_days:
-                sorted_available_days = timing.sort_days(available_days)
+                sorted_available_days = timing.sort_days(
+                    days=available_days,
+                    enable_offset_wrt_today=True
+                )
             to_match_day = sorted_available_days.pop(0)
             while timing.weekday(current_day) != to_match_day:
                 next_day = timing.next_day(current_day)
