@@ -928,8 +928,14 @@ async def get_prompt(payload: Goal) -> dict:
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
-
+    
+    # 3. Validation of the result
     result_payload = llm_resp["result"]
+    result_payload["prompt"] = user_goal
+    is_valid, validation_error = llm.validate_challenges(result_payload)
+    if not is_valid:
+        logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result_payload)[:500])
+        return {"status": False, "error": f"Invalid LLM response: {validation_error}"}
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
         raise HTTPException(
