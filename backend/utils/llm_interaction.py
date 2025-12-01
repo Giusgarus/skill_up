@@ -305,9 +305,17 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": False, "error": error_msg}
 
     # 6. Validation of the tasks
-    is_valid, validation_error = validate_challenges(result)
+    is_valid, validation_error = validate_challenges(tasks)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result)[:500])
         return {"status": False, "error": f"Invalid LLM response: {validation_error}"}
     
-    return {"status": True, "result": result}
+    return {
+        "status": True,
+        "result": {
+            "tasks": tasks,
+            "time_frame_days": challenges_meta.get("time_frame_days"),
+            "preferred_days": challenges_meta.get("preferred_days"),
+            "goal_title": challenges_meta.get("goal_title")
+        }
+    }
