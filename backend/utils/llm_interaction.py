@@ -182,6 +182,7 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 1. Data extraction
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
+    goal = goal[:100]  # align with LLM contract
     level = str(payload.get("level", "beginner")).lower()
     previous_task = payload.get("previous_task") or {}
     llm_response = payload.get("llm_response") or ""
@@ -197,6 +198,9 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             llm_response = json.dumps(llm_response)
         except Exception:  # pragma: no cover - defensive path
             llm_response = str(llm_response)
+    # Trim llm_response to stay within the LLM service request limits (Pydantic max_length=2500)
+    if isinstance(llm_response, str) and len(llm_response) > 2400:
+        llm_response = llm_response[:2400]
 
     # 2. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
@@ -267,13 +271,32 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
     level = str(payload.get("level", "beginner")).lower()
     history_list = payload.get("history") if isinstance(payload.get("history"), list) else []
+    if len(history_list) > 3:
+        history_list = history_list[-3:]
+    if len(history_list) > 3:
+        history_list = history_list[-3:]
+    # trim oversized responses inside history to reduce token usage
+    safe_history: list = []
+    for item in history_list:
+        if not isinstance(item, dict):
+            continue
+        prompt_val = item.get("prompt")
+        resp_val = item.get("response")
+        if isinstance(resp_val, str) and len(resp_val) > 1000:
+            resp_val = resp_val[:1000]
+        safe_history.append({"prompt": prompt_val, "response": resp_val})
+    history_list = safe_history
 
     # 2. Prepare Body
+    # 2. Prepare Body with explicit caps to avoid LLM token overflow
     body = {
         "goal": goal,
         "level": level,
         "history": history_list,
     }
+    # Cap total payload size heuristically (history already trimmed)
+    if isinstance(body["goal"], str) and len(body["goal"]) > 500:
+        body["goal"] = body["goal"][:500]
     if not body["goal"]:
         logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal)
         return {"status": False, "error": "Empty goal/prompt provided"}
@@ -311,11 +334,14 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": False, "error": error_msg}
 
     challenges = challenge_data.get("challenges_list") or []
+    if not challenges or int(challenge_data.get("challenges_count", 0) or 0) <= 0:
+        err = challenge_data.get("error_message") or "LLM returned no challenges"
+        return {"status": False, "error": err}
     available_days_raw = challenge_meta.get("preferred_days")
     available_days: list = available_days_raw if isinstance(available_days_raw, list) else []
     sorted_available_days = []
     tasks: dict[str, dict[str, Any]] = {}
-    current_day = timing.now().date()
+    current_day = timing.now_local().date()
     for idx, ch in enumerate(challenges):
         if not sorted_available_days:
             sorted_available_days = timing.sort_days(
@@ -340,6 +366,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             "description": desc,
             "difficulty": diff
         }
+        # advance by one day so repeated preferred days move forward (avoid overwriting same date)
+        current_day = timing.next_day(current_day)
 
     raw_response = {
         "challenge_data": challenge_data_raw,

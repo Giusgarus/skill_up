@@ -199,30 +199,36 @@ def _day_from_iso(value: Optional[str]) -> str:
 def _extract_error_message(payload: Dict[str, Any] | None) -> str | None:
     if not payload:
         return None
-    if isinstance(payload.get("error_message"), str):
-        return payload.get("error_message")
+    for key in ("error_message", "error", "detail"):
+        if isinstance(payload.get(key), str):
+            return payload.get(key)
     if isinstance(payload.get("response"), dict):
         resp = payload.get("response")
-        if isinstance(resp.get("error_message"), str):
-            return resp.get("error_message")
+        for key in ("error_message", "error", "detail"):
+            if isinstance(resp.get(key), str):
+                return resp.get(key)
     if isinstance(payload.get("raw_response"), dict):
         raw = payload.get("raw_response") or {}
         challenge_data = raw.get("challenge_data") if isinstance(raw.get("challenge_data"), dict) else {}
-        if isinstance(challenge_data.get("error_message"), str):
-            return challenge_data.get("error_message")
+        for key in ("error_message", "error", "detail"):
+            if isinstance(challenge_data.get(key), str):
+                return challenge_data.get(key)
     if isinstance(payload.get("challenge_data"), dict):
         challenge_data = payload.get("challenge_data") or {}
-        if isinstance(challenge_data.get("error_message"), str):
-            return challenge_data.get("error_message")
+        for key in ("error_message", "error", "detail"):
+            if isinstance(challenge_data.get(key), str):
+                return challenge_data.get(key)
     if isinstance(payload.get("response"), str):
         try:
             parsed = json.loads(payload.get("response"))
             if isinstance(parsed, dict):
+                for key in ("error_message", "error", "detail"):
+                    if isinstance(parsed.get(key), str):
+                        return parsed.get(key)
                 chall = parsed.get("challenge_data") if isinstance(parsed.get("challenge_data"), dict) else {}
-                if isinstance(chall.get("error_message"), str):
-                    return chall.get("error_message")
-                if isinstance(parsed.get("error_message"), str):
-                    return parsed.get("error_message")
+                for key in ("error_message", "error", "detail"):
+                    if isinstance(chall.get(key), str):
+                        return chall.get(key)
         except Exception:
             pass
     return None
@@ -264,6 +270,26 @@ def _difficulty_level_from_value(value: Any) -> str:
     label = _difficulty_key_from_value(value)
     level_map = {"easy": "beginner", "medium": "intermediate", "hard": "advanced"}
     return level_map.get(label.lower(), "beginner")
+
+
+def _trim_history(history: List[Dict[str, Any]], max_items: int = 3) -> List[Dict[str, Any]]:
+    if not isinstance(history, list):
+        return []
+    trimmed = [h for h in history if isinstance(h, dict)]
+    if len(trimmed) > max_items:
+        trimmed = trimmed[-max_items:]
+    # avoid sending huge response bodies
+    safe_history: List[Dict[str, Any]] = []
+    for item in trimmed:
+        prompt = item.get("prompt")
+        response = item.get("response")
+        try:
+            if isinstance(response, str) and len(response) > 1000:
+                response = response[:1000]
+        except Exception:
+            response = item.get("response")
+        safe_history.append({"prompt": prompt, "response": response})
+    return safe_history
 
 
 def _insert_plan_for_user(
@@ -365,7 +391,7 @@ def _build_hard_tasks(template_key: str) -> Dict[str, Dict[str, Any]]:
     template = HARD_TEMPLATES.get(template_key.lower())
     if not template:
         raise HTTPException(status_code=404, detail="Unknown preset plan")
-    today = timing.now().date()
+    today = timing.now_local().date()
     tasks: Dict[str, Dict[str, Any]] = {}
     for item in template:
         offset = int(item.get("offset", 0))
@@ -489,7 +515,7 @@ async def retask(payload: Retask) -> dict:
     try:
         plan_tasks_for_offsets = db.find_many(
             table_name="tasks",
-            filters={"user_id": user_id, "plan_id": plan_id, "deleted": False},
+            filters={"user_id": user_id, "plan_id": plan_id},
             projection={"_id": False, "deadline_date": True},
         ) or []
         for t in plan_tasks_for_offsets:
@@ -500,21 +526,23 @@ async def retask(payload: Retask) -> dict:
                 continue
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Unable to compute plan offsets for user %s: %s", user_id, exc)
-    base_date = min(plan_task_dates) if plan_task_dates else timing.now().date()
     try:
         task_deadline_date = timing.from_iso_to_datetime(task.get("deadline_date")).date()
     except Exception:
-        task_deadline_date = base_date
-    day_offset = max((task_deadline_date - base_date).days, 0)
+        task_deadline_date = timing.now().date()
+    plan_start_date = min(plan_task_dates) if plan_task_dates else task_deadline_date
+    day_offset = max((task_deadline_date - plan_start_date).days, 0)
+    today_date = timing.now_local().date()
 
     # 3. Create the history for the LLM
     prompts = plan.get("prompts") if isinstance(plan.get("prompts"), list) else []
     responses = plan.get("responses") if isinstance(plan.get("responses"), list) else []
-    history = [
+    history_raw = [
         {"prompt": prompt, "response": response}
         for prompt, response in zip(prompts, responses)
         if prompt is not None or response is not None
     ]
+    history = _trim_history(history_raw)
     if not prompts:
         raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
 
@@ -540,8 +568,15 @@ async def retask(payload: Retask) -> dict:
     if llm_response_obj is None:
         raise HTTPException(status_code=502, detail="Plan missing LLM response; cannot retask.")
     llm_response_str = _as_json_string(llm_response_obj)
+    base_goal = ""
+    for p in prompts:
+        if p:
+            base_goal = str(p)
+            break
+    llm_goal = base_goal[:100]
+
     llm_payload = {
-        "goal": prompts[-1],
+        "goal": llm_goal,
         "level": _difficulty_level_from_value(plan.get("difficulty")),
         "history": history,
         "user_info": dh.get_user_info(user_id),
@@ -559,11 +594,11 @@ async def retask(payload: Retask) -> dict:
     result: Dict[str, Any] = response.get("result") or {}
     difficulty_key = _difficulty_key_from_value(result.get("difficulty") or result.get("challenge_difficulty"))
     new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(difficulty_key.lower(), CHALLENGES_DIFFICULTY_MAP.get("easy", 1))
-    new_deadline_date = task.get("deadline_date") or task_deadline_date.isoformat()
+    new_deadline_date = today_date.isoformat()
     if result.get("day_offset") is not None:
         try:
             offset_days = int(result.get("day_offset"))
-            new_deadline_date = (base_date + timedelta(days=offset_days)).isoformat()
+            new_deadline_date = (today_date + timedelta(days=offset_days)).isoformat()
         except Exception as exc:  # pragma: no cover - defensive conversion
             logger.warning("Invalid day_offset returned by LLM for user %s: %s", user_id, exc)
     new_task = {
@@ -1024,6 +1059,7 @@ def report(payload: Report) -> dict:
 def get_prompt(payload: Goal) -> dict:
     token = payload.token
     user_goal = payload.goal
+    llm_goal = (user_goal or "")[:500]
 
     # 1. Verify Session
     valid_token, user_id = session.verify_session(token)
@@ -1032,12 +1068,12 @@ def get_prompt(payload: Goal) -> dict:
 
     # 2. Communicate with LLM server
     llm_payload = {
-        "goal": user_goal,
+        "goal": llm_goal,
         "level": "beginner",
         "history": [],  # empty because this is a new plan
         "user_info": dh.get_user_info(user_id),
     }
-    llm_resp = llm.get_llm_response(llm_payload)
+    llm_resp = llm.get_llm_replan_response(llm_payload)
     if not llm_resp.get("status"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
@@ -1276,6 +1312,7 @@ async def replan(payload: Replan) -> dict:
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+    llm_goal = (new_goal or "")[:500]
 
     # 1. Retrieve the plan from the DB
     plan = db.find_one(
@@ -1298,15 +1335,25 @@ async def replan(payload: Replan) -> dict:
     # 2. Create the history for the LLM
     prompts = plan.get("prompts") if isinstance(plan.get("prompts"), list) else []
     responses = plan.get("responses") if isinstance(plan.get("responses"), list) else []
-    history = [
+    history_raw = [
         {"prompt": p, "response": r}
         for p, r in zip(prompts, responses)
         if p is not None or r is not None
     ]
+    history = _trim_history(history_raw)
+
+    # build a richer goal to give context to the LLM (previous goal + replan note)
+    base_goal = ""
+    if prompts:
+        base_goal = str(prompts[0] or "")
+    combined_goal = base_goal
+    if new_goal:
+        combined_goal = f"{base_goal} Replan request: {new_goal}".strip()
+    combined_goal = combined_goal[:500]
 
     # 3. Communication with the LLM server
     llm_payload = {
-        "goal": new_goal,
+        "goal": combined_goal or llm_goal,
         "level": _difficulty_level_from_value(plan.get("difficulty")),
         "history": history,
         "user_info": dh.get_user_info(user_id),

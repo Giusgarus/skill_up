@@ -5,6 +5,9 @@ UTC = _tz.utc
 def now():
     return datetime.datetime.now(UTC)
 
+def now_local():
+    return datetime.datetime.now().astimezone()
+
 def now_iso():
     return datetime.datetime.now(UTC).isoformat()
 

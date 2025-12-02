@@ -101,14 +101,9 @@ def challenge_sanitization(goal: str):
         )
         logger.info("Response received: %s", response)
         # Safety filter check / empty response
-        if not response or not hasattr(response, "text") or not response.text:
-            if hasattr(response, "prompt_feedback"):
-                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
-                raise ValueError("Request blocked by safety filters. Please rephrase your goal.")
-            raise ValueError("Empty response from AI model")
-
-        # logger.info("Raw API response: %s...", (response.text[:100] if response.text else "None"))
-        json_text = response.text.strip()
+        if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+            logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
+        json_text = _extract_text_or_raise(response, "challenge_sanitization").strip()
 
         # strip triple-backtick codeblocks if present
         if json_text.startswith("```"):
@@ -119,7 +114,7 @@ def challenge_sanitization(goal: str):
                     json_text = json_text[4:]
                 json_text = json_text.strip()
 
-        challenge_data = json.loads(json_text)
+        challenge_data = _loads_with_repair(json_text, "challenge_sanitization")
 
         logger.info("Challenge generated and validated successfully")
         return challenge_data
@@ -136,6 +131,122 @@ def challenge_sanitization(goal: str):
 # Core AI Function
 # -----------------------
 logger = logging.getLogger(__name__)
+def _extract_text_or_raise(response, context: str):
+    """
+    Safely extract text from a Gemini response. Raises ValueError with a meaningful
+    message when the model finishes without returning content (e.g., MAX_TOKENS).
+    """
+    if response is None:
+        raise ValueError(f"{context} returned empty response")
+
+    def _finish_reason(resp) -> str | None:
+        try:
+            candidates = getattr(resp, "candidates", None) or []
+            if candidates:
+                return getattr(candidates[0], "finish_reason", None)
+        except Exception:
+            return None
+        return None
+
+    # Try the direct accessor first, but guard exceptions
+    try:
+        return response.text
+    except Exception as exc:
+        finish_reason = _finish_reason(response)
+        # If we can extract parts manually, try that before giving up
+        try:
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                content = getattr(candidates[0], "content", None)
+                parts = getattr(content, "parts", None) or []
+                for part in parts:
+                    text_part = getattr(part, "text", None)
+                    if isinstance(text_part, str) and text_part.strip():
+                        return text_part
+        except Exception:
+            pass
+
+        finish_msg = f" (finish_reason={finish_reason})" if finish_reason is not None else ""
+        raise ValueError(f"{context} returned no content{finish_msg}: {exc}")
+
+
+def _safe_text_snippet(response, context: str = "") -> str:
+    """Best-effort snippet for logging without triggering property errors."""
+    if response is None:
+        return "None"
+    try:
+        txt = response.text or ""
+        if len(txt) > 400:
+            return txt[:400] + "..."
+        return txt
+    except Exception:
+        finish = None
+        try:
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                finish = getattr(candidates[0], "finish_reason", None)
+        except Exception:
+            finish = None
+        suffix = f" (finish_reason={finish})" if finish is not None else ""
+        return f"[no text{suffix}]"
+
+
+def _extract_json_text(response, context: str) -> str:
+    """
+    Extract JSON text from the model response, stripping optional fences and doing
+    a best-effort fix for trailing commas or invalid json by returning the raw string.
+    """
+    raw_text = _extract_text_or_raise(response, context)
+    json_text = raw_text.strip()
+
+    # strip triple-backtick codeblocks if present
+    if json_text.startswith("```"):
+        parts = json_text.split("```")
+        if len(parts) >= 2:
+            json_text = parts[1]
+            if json_text.startswith("json"):
+                json_text = json_text[4:]
+            json_text = json_text.strip()
+
+    return json_text
+
+
+def _repair_json_string(json_text: str) -> str:
+    """
+    Lightweight repair for truncated or slightly malformed JSON strings.
+    - balances quotes
+    - trims trailing garbage after last closing brace/bracket
+    - balances braces/brackets
+    """
+    repaired = json_text.strip()
+
+    # If there is trailing garbage after a closing brace/bracket, trim it
+    last_closer = max(repaired.rfind("}"), repaired.rfind("]"))
+    if last_closer != -1 and last_closer < len(repaired) - 1:
+        repaired = repaired[: last_closer + 1]
+
+    # Balance quotes (very small heuristic)
+    if repaired.count('"') % 2 == 1:
+        repaired += '"'
+
+    # Balance braces/brackets
+    open_curly, close_curly = repaired.count("{"), repaired.count("}")
+    if open_curly > close_curly:
+        repaired += "}" * (open_curly - close_curly)
+    open_sq, close_sq = repaired.count("["), repaired.count("]")
+    if open_sq > close_sq:
+        repaired += "]" * (open_sq - close_sq)
+
+    return repaired
+
+
+def _loads_with_repair(json_text: str, context: str):
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        logger.warning("%s: JSON decode failed, attempting repair: %s", context, exc)
+        repaired = _repair_json_string(json_text)
+        return json.loads(repaired)
 
 def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     sanitized_goal, sanitized_level, sanitized_history, error = validate_and_sanitize_input(goal, level, history)
@@ -212,14 +323,11 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
         )
 
         # Safety filter check / empty response
-        if not response or not hasattr(response, "text") or not response.text:
-            if hasattr(response, "prompt_feedback"):
-                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
-                raise ValueError("Request blocked by safety filters. Please rephrase your goal.")
-            raise ValueError("Empty response from AI model")
+        if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+            logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
 
-        logger.info("Raw API response: %s...", (response.text[:400] if response.text else "None"))
-        json_text = response.text.strip()
+        logger.info("Raw API response: %s...", _safe_text_snippet(response, "generate_challenge"))
+        json_text = _extract_json_text(response, "generate_challenge")
 
         # strip triple-backtick codeblocks if present
         if json_text.startswith("```"):
@@ -230,7 +338,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
                     json_text = json_text[4:]
                 json_text = json_text.strip()
 
-        challenge_data = json.loads(json_text)
+        challenge_data = _loads_with_repair(json_text, "replan_task")
 
         is_valid, validation_error = validate_ai_response(challenge_data)
         if not is_valid:
@@ -422,6 +530,31 @@ def validate_replan_task_response(response_data: dict):
     return True, None
 
 
+def _fallback_replan_task(previous_task: str, modification_reason: str) -> dict:
+    """Fallback task when the model does not return usable content."""
+    try:
+        prev = json.loads(previous_task) if previous_task else {}
+    except Exception:
+        prev = {}
+    title = prev.get("challenge_title") or "Task Update"
+    desc = prev.get("challenge_description") or ""
+    if modification_reason:
+        desc = f"{desc} (Adjusted: {modification_reason})" if desc else f"Adjusted: {modification_reason}"
+        title = f"{title} (Updated)"
+    difficulty = prev.get("difficulty") or "Easy"
+    day_offset = prev.get("day_offset", 0)
+    try:
+        day_offset = int(day_offset)
+    except Exception:
+        day_offset = 0
+    return {
+        "challenge_title": str(title)[:100],
+        "challenge_description": str(desc)[:500],
+        "difficulty": str(difficulty).title(),
+        "day_offset": day_offset,
+    }
+
+
 def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modificaiton_reason: Optional[str] = ""):
     try:
         existing_data = json.loads(llm_response)
@@ -512,14 +645,11 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
         )
 
         # Safety filter check / empty response
-        if not response or not hasattr(response, "text") or not response.text:
-            if hasattr(response, "prompt_feedback"):
-                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
-                raise ValueError("Request blocked by safety filters. Please rephrase your goal.")
-            raise ValueError("Empty response from AI model")
+        if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+            logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
 
-        logger.info("Raw API response: %s...", (response.text[:400] if response.text else "None"))
-        json_text = response.text.strip()
+        logger.info("Raw API response: %s...", _safe_text_snippet(response, "replan_task"))
+        json_text = _extract_json_text(response, "replan_task")
 
         # strip triple-backtick codeblocks if present
         if json_text.startswith("```"):
@@ -527,10 +657,10 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
             if len(parts) >= 2:
                 json_text = parts[1]
                 if json_text.startswith("json"):
-                    json_text = json_text[4:]
+                    json_text = parts[1][4:]
                 json_text = json_text.strip()
 
-        challenge_data = json.loads(json_text)
+        challenge_data = _loads_with_repair(json_text, "replan_task")
 
         is_valid, validation_error = validate_replan_task_response(challenge_data)
         if not is_valid:
@@ -545,6 +675,10 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
         logger.error("JSON parsing error: %s", e)
         logger.error("Response text: %s", response.text if response else "None")
         raise ValueError("Failed to parse AI response")
+    except ValueError as e:
+        # If the model returned no content or invalid JSON, fall back to a safe replacement
+        logger.warning("LLM replan_task returned no usable content, using fallback: %s", e)
+        return _fallback_replan_task(previous_task, modificaiton_reason)
     except Exception as e:
         logger.error("Error generating challenge: %s", str(e), exc_info=True)
         raise
