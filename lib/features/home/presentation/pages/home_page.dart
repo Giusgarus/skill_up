@@ -2954,8 +2954,8 @@ class _TaskMenuItemLabel extends StatelessWidget {
             gradient: LinearGradient(
               colors: isDestructive
                   ? [
-                const Color(0xFFFF9A9E), // inizio come prima
-                const Color(0xFFFFC5F4), // 🔥 rosso puro
+                const Color(0xFFFF9A9E),
+                const Color(0xFFFF5C5C),
               ]
                   : [
                 const Color(0xFFFF9A9E),
