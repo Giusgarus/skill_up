@@ -86,12 +86,13 @@ def backend_app(monkeypatch):
 
     llm_calls: list[dict] = []
 
-    class _EmailResult:
-        def __init__(self, email: str):
-            self.email = email
-
-    def fake_validate_email(email: str, check_deliverability: bool = True):
-        normalized = email.strip().lower()
+    def fake_validate_email(
+        email: str | None = None,
+        email_address: str | None = None,
+        check_deliverability: bool = True,
+        **kwargs,
+    ):
+        normalized = (email_address if email_address is not None else email or "").strip().lower()
         if (
             not normalized
             or "@" not in normalized
@@ -104,7 +105,7 @@ def backend_app(monkeypatch):
             raise EmailNotValidError("Invalid email format")
         if domain == "no-mx.test":
             raise EmailNotValidError("Domain does not have required MX records")
-        return _EmailResult(normalized)
+        return True
 
     monkeypatch.setattr(auth_server, "validate_email", fake_validate_email)
 

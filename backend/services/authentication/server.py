@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import timezone as _tz
 from pydantic import BaseModel, ConfigDict, Field
-from email_validator import EmailNotValidError, validate_email
+from validate_email import validate_email
 import backend.utils.security as security
 import backend.utils.session as session
 import backend.utils.timing as timing
@@ -89,29 +89,30 @@ router = APIRouter(prefix="/services/auth", tags=["Auth"])
 def register(payload: Register) -> dict:
     username = str(payload.username).strip()
     password = payload.password
-    raw_email = payload.email.strip()
+    raw_email = payload.email.strip().lower()
     # Check that all the fileds are in the payload
     if not username or not password or not raw_email:
         raise HTTPException(status_code = 400, detail = "Username/password/email are required")
     try:
-        validated_email = validate_email(raw_email, check_deliverability = True)
-        email = validated_email.email.lower()
-    except EmailNotValidError as exc:
-        raise HTTPException(status_code = 401, detail = f"Invalid email: {exc}")
+        is_valid = validate_email(email_address=raw_email,check_format=True,check_blacklist=True,check_dns=True,dns_timeout=10,check_smtp=True,smtp_timeout=10)
+    except Exception as exc:
+        raise HTTPException(status_code = 401, detail = f"Invalid email:")
+    if not is_valid:
+        raise HTTPException(status_code = 401, detail = f"Invalid email:")
     # Check that the password is good enough
     if not security.check_register_password(password):
         raise HTTPException(status_code = 402, detail = "Password does not meet complexity requirements")
     results = db.find_one(table_name = "users", filters = {"username": username}, projection = {"_id" : True})
     if results:
         raise HTTPException(status_code = 403, detail = "User already exists")
-    email_exists = db.find_one(table_name = "users", filters = {"email": email}, projection = {"_id": True})
+    email_exists = db.find_one(table_name = "users", filters = {"email": raw_email}, projection = {"_id": True})
     if email_exists:
         raise HTTPException(status_code = 404, detail = "Email already in use")
     user = {
         "username": username,
         "password_hash": security.hash_password(password),
         "user_id": str(uuid.uuid4()),
-        "email": email,
+        "email": raw_email,
         "n_plans": 0,
         "n_plans_done": 0,
         "n_tasks_done": 0,
