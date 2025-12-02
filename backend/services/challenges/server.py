@@ -205,7 +205,65 @@ def _extract_error_message(payload: Dict[str, Any] | None) -> str | None:
         resp = payload.get("response")
         if isinstance(resp.get("error_message"), str):
             return resp.get("error_message")
+    if isinstance(payload.get("raw_response"), dict):
+        raw = payload.get("raw_response") or {}
+        challenge_data = raw.get("challenge_data") if isinstance(raw.get("challenge_data"), dict) else {}
+        if isinstance(challenge_data.get("error_message"), str):
+            return challenge_data.get("error_message")
+    if isinstance(payload.get("challenge_data"), dict):
+        challenge_data = payload.get("challenge_data") or {}
+        if isinstance(challenge_data.get("error_message"), str):
+            return challenge_data.get("error_message")
+    if isinstance(payload.get("response"), str):
+        try:
+            parsed = json.loads(payload.get("response"))
+            if isinstance(parsed, dict):
+                chall = parsed.get("challenge_data") if isinstance(parsed.get("challenge_data"), dict) else {}
+                if isinstance(chall.get("error_message"), str):
+                    return chall.get("error_message")
+                if isinstance(parsed.get("error_message"), str):
+                    return parsed.get("error_message")
+        except Exception:
+            pass
     return None
+
+
+def _as_json_string(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value)
+    except Exception:
+        return str(value)
+
+
+def _difficulty_key_from_value(value: Any) -> str:
+    try:
+        numeric = int(value)
+    except Exception:
+        try:
+            return str(value).lower()
+        except Exception:
+            return "easy"
+    for name, score in CHALLENGES_DIFFICULTY_MAP.items():
+        try:
+            if int(score) == numeric:
+                return name
+        except Exception:
+            continue
+    if numeric <= CHALLENGES_DIFFICULTY_MAP.get("easy", 1):
+        return "easy"
+    if numeric <= CHALLENGES_DIFFICULTY_MAP.get("medium", 3):
+        return "medium"
+    return "hard"
+
+
+def _difficulty_level_from_value(value: Any) -> str:
+    label = _difficulty_key_from_value(value)
+    level_map = {"easy": "beginner", "medium": "intermediate", "hard": "advanced"}
+    return level_map.get(label.lower(), "beginner")
 
 
 def _insert_plan_for_user(
@@ -404,7 +462,8 @@ async def retask(payload: Retask) -> dict:
             "title": True,
             "description": True,
             "difficulty": True,
-            "score": True
+            "score": True,
+            "deadline_date": True,
         }
     )
     if not task or task is None:
@@ -419,28 +478,63 @@ async def retask(payload: Retask) -> dict:
             "prompts": True,
             "responses": True,
             "completed_at": True,
+            "difficulty": True,
         },
     )
     if not plan or plan is None:
         raise HTTPException(status_code=405, detail="Invalid plan ID")
     
+    # derive plan start date to preserve scheduling offsets
+    plan_task_dates: List[date_cls] = []
+    try:
+        plan_tasks_for_offsets = db.find_many(
+            table_name="tasks",
+            filters={"user_id": user_id, "plan_id": plan_id, "deleted": False},
+            projection={"_id": False, "deadline_date": True},
+        ) or []
+        for t in plan_tasks_for_offsets:
+            try:
+                dt = timing.from_iso_to_datetime(t.get("deadline_date")).date()
+                plan_task_dates.append(dt)
+            except Exception:
+                continue
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Unable to compute plan offsets for user %s: %s", user_id, exc)
+    base_date = min(plan_task_dates) if plan_task_dates else timing.now().date()
+    try:
+        task_deadline_date = timing.from_iso_to_datetime(task.get("deadline_date")).date()
+    except Exception:
+        task_deadline_date = base_date
+    day_offset = max((task_deadline_date - base_date).days, 0)
+
     # 3. Create the history for the LLM
-    prompts = plan.get("prompts") or []
-    responses = plan.get("responses") or []
+    prompts = plan.get("prompts") if isinstance(plan.get("prompts"), list) else []
+    responses = plan.get("responses") if isinstance(plan.get("responses"), list) else []
     history = [
         {"prompt": prompt, "response": response}
         for prompt, response in zip(prompts, responses)
         if prompt is not None or response is not None
     ]
+    if not prompts:
+        raise HTTPException(status_code=407, detail="Plan has no prompts but should have at least one.")
 
     # 3. Communication with the LLM server
+    previous_task_payload = {
+        "challenge_title": task.get("title"),
+        "challenge_description": task.get("description"),
+        "difficulty": _difficulty_key_from_value(task.get("difficulty")).title(),
+        "day_offset": day_offset,
+        "deadline_date": str(task_deadline_date),
+    }
+    llm_response_str = _as_json_string(responses[-1] if responses else None)
     llm_payload = {
         "goal": prompts[-1],
-        "level": plan.get("difficulty"),
+        "level": _difficulty_level_from_value(plan.get("difficulty")),
         "history": history,
         "user_info": dh.get_user_info(user_id),
-        "previous_task": task,
-        "modification_reason": modification_reason
+        "previous_task": previous_task_payload,
+        "modification_reason": modification_reason,
+        "llm_response": llm_response_str,
     }
     response = llm.get_llm_retask_response(llm_payload)
     if not response.get("status"):
@@ -450,13 +544,21 @@ async def retask(payload: Retask) -> dict:
 
     # 4. Update task
     result: Dict[str, Any] = response.get("result") or {}
-    new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(str(result.get("difficulty", "easy")).lower(), 1)
+    difficulty_key = _difficulty_key_from_value(result.get("difficulty") or result.get("challenge_difficulty"))
+    new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(difficulty_key.lower(), CHALLENGES_DIFFICULTY_MAP.get("easy", 1))
+    new_deadline_date = task.get("deadline_date") or task_deadline_date.isoformat()
+    if result.get("day_offset") is not None:
+        try:
+            offset_days = int(result.get("day_offset"))
+            new_deadline_date = (base_date + timedelta(days=offset_days)).isoformat()
+        except Exception as exc:  # pragma: no cover - defensive conversion
+            logger.warning("Invalid day_offset returned by LLM for user %s: %s", user_id, exc)
     new_task = {
-        "title": result["challenge_title"],
-        "description": result["challenge_description"],
+        "title": result.get("challenge_title") or task["title"],
+        "description": result.get("challenge_description") or task["description"],
         "difficulty": new_difficulty,
         "score": new_difficulty * 10,
-        "deadline_date": result["deadline_date"],
+        "deadline_date": new_deadline_date,
         "completed_at": None
     }
     updated_task = db.update_one(
@@ -918,7 +1020,7 @@ def get_prompt(payload: Goal) -> dict:
     # 2. Communicate with LLM server
     llm_payload = {
         "goal": user_goal,
-        "level": "0",  # 0=beginner, 1=intermediate, 2=advanced
+        "level": "beginner",
         "history": [],  # empty because this is a new plan
         "user_info": dh.get_user_info(user_id),
     }
@@ -930,18 +1032,21 @@ def get_prompt(payload: Goal) -> dict:
     
     # 3. Validation of the result
     result_payload = llm_resp["result"]
-    result_payload["prompt"] = user_goal
+    prompt_text = result_payload.get("prompt") or user_goal
+    response_payload = result_payload.get("response") or _as_json_string(result_payload.get("raw_response"))
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
         raise HTTPException(status_code=502, detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.")
     fallback_error = _extract_error_message(result_payload)
-    return _insert_plan_for_user(
+    res_payload = _insert_plan_for_user(
         user_id=user_id,
         tasks_dict=tasks_payload,
-        prompt_text=result_payload.get("prompt"),
-        response_payload=result_payload.get("response"),
+        prompt_text=prompt_text,
+        response_payload=response_payload,
         fallback_error=fallback_error,
     )
+    res_payload.pop("response", None)  # keep stored in DB but do not expose in HTTP response
+    return res_payload
 
 
 # ==========================
@@ -974,12 +1079,14 @@ async def create_hard_plan(
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     tasks_dict = _build_hard_tasks(preset)
     prompt_text = f"Preset plan {preset}"
-    return _insert_plan_for_user(
+    res_payload = _insert_plan_for_user(
         user_id=user_id,
         tasks_dict=tasks_dict,
         prompt_text=prompt_text,
         response_payload={"preset": preset},
     )
+    res_payload.pop("response", None)
+    return res_payload
 
 
 # ==========================
@@ -1169,14 +1276,15 @@ async def replan(payload: Replan) -> dict:
             "next_task_id": True,
             "n_tasks_done": True,
             "completed_at": True,
+            "difficulty": True,
         },
     )
     if not plan_id or plan is None:
         raise HTTPException(status_code=402, detail="Invalid Plan ID")
     
     # 2. Create the history for the LLM
-    prompts = plan.get("prompts") or []
-    responses = plan.get("responses") or []
+    prompts = plan.get("prompts") if isinstance(plan.get("prompts"), list) else []
+    responses = plan.get("responses") if isinstance(plan.get("responses"), list) else []
     history = [
         {"prompt": p, "response": r}
         for p, r in zip(prompts, responses)
@@ -1186,7 +1294,7 @@ async def replan(payload: Replan) -> dict:
     # 3. Communication with the LLM server
     llm_payload = {
         "goal": new_goal,
-        "level": "0",  # Default to beginner
+        "level": _difficulty_level_from_value(plan.get("difficulty")),
         "history": history,
         "user_info": dh.get_user_info(user_id),
     }
@@ -1197,6 +1305,8 @@ async def replan(payload: Replan) -> dict:
         raise HTTPException(status_code=502, detail=f"LLM service error: {err_msg}")
     
     result_payload = llm_resp.get("result") or {}
+    prompt_text = result_payload.get("prompt") or new_goal
+    response_payload = result_payload.get("response") or _as_json_string(result_payload.get("raw_response"))
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
         raise HTTPException(
@@ -1250,8 +1360,8 @@ async def replan(payload: Replan) -> dict:
                 "next_task_id": start_task_id + len(normalized_tasks),
             },
             "$push": {
-                "prompts": llm_resp["result"]["prompt"],
-                "responses": llm_resp["result"]["response"],
+                "prompts": prompt_text,
+                "responses": response_payload,
                 "tasks": {date: [task] for date, task in normalized_tasks},
             },
         },
