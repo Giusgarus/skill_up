@@ -907,7 +907,7 @@ def report(payload: Report) -> dict:
         505: {"model": ErrorResponse, "description": "Database error while creating the plan."},
     },
 )
-async def get_prompt(payload: Goal) -> dict:
+def get_prompt(payload: Goal) -> dict:
     token = payload.token
     user_goal = payload.goal
 
