@@ -192,18 +192,20 @@ class ActivePlansDetailedResult {
 }
 
 class TaskApiResult {
-  const TaskApiResult.success({this.newScore})
+  const TaskApiResult.success({this.newScore, this.updatedTask})
     : errorMessage = null,
       error = null,
       stackTrace = null;
 
   const TaskApiResult.error(this.errorMessage, {this.error, this.stackTrace})
-    : newScore = null;
+    : newScore = null,
+      updatedTask = null;
 
   final String? errorMessage;
   final Object? error;
   final StackTrace? stackTrace;
   final int? newScore;
+  final RemoteTask? updatedTask;
 
   bool get isSuccess => errorMessage == null;
 }
@@ -230,6 +232,8 @@ class TaskApi {
       Uri.parse(baseUrl).resolve('/services/challenges/hard/$preset');
   Uri get _reportUri =>
       Uri.parse(baseUrl).resolve('/services/challenges/report');
+  Uri get _retaskUri =>
+      Uri.parse(baseUrl).resolve('/services/challenges/retask');
 
   Future<PlanResult> fetchActivePlan({required String token}) async {
     final payload = jsonEncode({'token': token});
@@ -622,6 +626,74 @@ class TaskApi {
     } catch (error, stackTrace) {
       return TaskApiResult.error(
         'Unexpected error while sending feedback.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<TaskApiResult> retaskTask({
+    required String token,
+    required int planId,
+    required int taskId,
+    required String reason,
+  }) async {
+    final payload = jsonEncode({
+      'token': token,
+      'plan_id': planId,
+      'task_id': taskId,
+      'modification_reason': reason,
+    });
+    try {
+      final response = await _client.post(
+        _retaskUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final body = _decodeBody(response.body);
+        RemoteTask? updatedTask;
+        final newTaskRaw = body['new_task'];
+        if (newTaskRaw is Map) {
+          final map =
+              Map<String, dynamic>.from(newTaskRaw.cast<String, dynamic>());
+          map.putIfAbsent('plan_id', () => planId);
+          map.putIfAbsent('task_id', () => taskId);
+          updatedTask = RemoteTask.fromJson(
+            map,
+            fallbackPlanId: planId,
+            fallbackTaskId: taskId,
+          );
+        }
+        final newScore = (body['score'] as num?)?.toInt() ?? updatedTask?.score;
+        return TaskApiResult.success(
+          newScore: newScore,
+          updatedTask: updatedTask,
+        );
+      }
+      String? message;
+      if (response.body.isNotEmpty) {
+        try {
+          final Map<String, dynamic> parsed =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          message = (parsed['detail'] ??
+              parsed['error'] ??
+              parsed['message'] ??
+              parsed['error_message']) as String?;
+        } catch (_) {
+          // ignore malformed body
+        }
+      }
+      return TaskApiResult.error(
+        message ?? 'Unable to update task (${response.statusCode}).',
+      );
+    } on SocketException catch (_) {
+      return const TaskApiResult.error('No internet connection.');
+    } on HttpException catch (_) {
+      return const TaskApiResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return TaskApiResult.error(
+        'Unexpected error while updating the task.',
         error: error,
         stackTrace: stackTrace,
       );

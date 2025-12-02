@@ -904,20 +904,38 @@ class _HomePageState extends State<HomePage> {
       _isReplanningTask = true;
     });
 
-    // per ora simuliamo una chiamata async; poi qui ci metterai la tua API
-    unawaited(_simulateReplan(task, trimmed));
+    unawaited(_retaskTask(task, trimmed));
   }
 
-  Future<void> _simulateReplan(DailyTask task, String request) async {
-    try {
-      // TODO: sostituisci con la vera chiamata al backend
-      await Future.delayed(const Duration(seconds: 2));
-
+  Future<void> _retaskTask(DailyTask task, String request) async {
+    final session = await _ensureSession();
+    if (session == null) {
       if (!mounted) return;
-      _showSnack(
-        'Thanks! We\'ll use this to improve your future tasks 💡',
-        duration: const Duration(milliseconds: 1500),
+      setState(() => _isReplanningTask = false);
+      _showSnack('No active session found. Please log in again.');
+      return;
+    }
+
+    try {
+      final result = await _taskApi.retaskTask(
+        token: session.token,
+        planId: task.planId,
+        taskId: task.remoteTaskId,
+        reason: request,
       );
+      if (!mounted) return;
+      if (result.isSuccess) {
+        await _loadActivePlan();
+        _showSnack(
+          'Task updated 🎯',
+          duration: const Duration(milliseconds: 1400),
+        );
+      } else {
+        _showSnack(result.errorMessage ?? 'Unable to update this task.');
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to update this task. Please retry.');
     } finally {
       if (!mounted) return;
       setState(() {
@@ -3129,4 +3147,3 @@ class _TaskReplanOverlayState extends State<_TaskReplanOverlay> {
     );
   }
 }
-
