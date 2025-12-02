@@ -21,7 +21,7 @@ DEFAULT_BODY_TEMPLATE = os.getenv(
     "NOTIFICATION_BODY",
     "Hi {name}, you're doing great, keep it up.",
 )
-INTERVAL_SECONDS = 60
+INTERVAL_SECONDS = 300
 FCM_MAX_BATCH = 500
 _has_send_multicast = hasattr(messaging, "send_multicast")
 _has_send_all = hasattr(messaging, "send_all")

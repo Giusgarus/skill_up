@@ -41,19 +41,21 @@ flutter_launcher_icons:
   android: true
   ios: true
 
-  # obbligatorio (fallback generale)
+  # Percorso principale (fallback)
   image_path: "assets/brand/logotype.png"
 
-  # iOS (se non lo metti, usa image_path)
+  # iOS utilizza direttamente una singola immagine
   image_path_ios: "assets/brand/logotype.png"
 
-  # Android adaptive icon
+  # Android Adaptive Icon
   adaptive_icon_background: "assets/brand/back_logotype.png"
   adaptive_icon_foreground: "assets/brand/logotype.png"
 
-  min_sdk_android: 21
+  # Scala del foreground (0.0 – 1.0)
+  adaptive_icon_foreground_scale_factor: 0.40
 
-  adaptive_icon_foreground_scale_factor: 0.4
+  # Versione minima Android
+  min_sdk_android: 21
 
 fonts:
   - family: FugazOne
