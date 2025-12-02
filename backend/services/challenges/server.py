@@ -526,7 +526,20 @@ async def retask(payload: Retask) -> dict:
         "day_offset": day_offset,
         "deadline_date": str(task_deadline_date),
     }
-    llm_response_str = _as_json_string(responses[-1] if responses else None)
+    llm_response_obj = None
+    for resp in reversed(responses):
+        if resp is not None:
+            llm_response_obj = resp
+            break
+    if llm_response_obj is None and history:
+        # fallback to last history entry if present
+        llm_response_obj = next(
+            (item.get("response") for item in reversed(history) if item.get("response") is not None),
+            None,
+        )
+    if llm_response_obj is None:
+        raise HTTPException(status_code=502, detail="Plan missing LLM response; cannot retask.")
+    llm_response_str = _as_json_string(llm_response_obj)
     llm_payload = {
         "goal": prompts[-1],
         "level": _difficulty_level_from_value(plan.get("difficulty")),
