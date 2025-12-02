@@ -95,7 +95,7 @@ def challenge_sanitization(goal: str):
             generation_config={
                 "temperature": 0.0,
                 "top_p": 0.95,
-                "max_output_tokens": 3000,
+                "max_output_tokens": 10000,
                 "response_mime_type": "application/json",
             }
         )
@@ -206,7 +206,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 5000,
+                "max_output_tokens": 10000,
                 "response_mime_type": "application/json",
             }
         )
@@ -471,7 +471,7 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 500,
+                "max_output_tokens": 1000,
                 "response_mime_type": "application/json",
             }
         )
