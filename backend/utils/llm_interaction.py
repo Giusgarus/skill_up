@@ -3,7 +3,6 @@ import os
 import logging
 from pathlib import Path
 from typing import Literal, Tuple, Dict, Any
-from datetime import timedelta
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from backend.utils import timing
@@ -126,7 +125,13 @@ def communicate(url: str, body: dict, headers: dict):
     if resp.status_code != 200:
         content_snippet = (resp.text[:500] + "...") if resp.text else ""
         logger.warning("LLM server returned status %d: %s", resp.status_code, content_snippet)
-        return {"status": False, "error": f"LLM server error ({resp.status_code})"}
+        try:
+            parsed = resp.json()
+            detail_msg = parsed.get("message") or parsed.get("detail") or ""
+        except Exception:
+            detail_msg = ""
+        msg_suffix = f": {detail_msg}" if detail_msg else ""
+        return {"status": False, "error": f"LLM server error ({resp.status_code}){msg_suffix}"}
     try:
         result = resp.json()
     except ValueError:
@@ -178,16 +183,28 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
     # 1. Data extraction
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
     level = str(payload.get("level", "beginner")).lower()
-    history_list = payload.get("history") if isinstance(payload.get("history"), list) else []
-    previous_task = str(payload.get("previous_task"))
+    previous_task = payload.get("previous_task") or {}
+    llm_response = payload.get("llm_response") or ""
+
+    if not isinstance(previous_task, str):
+        try:
+            previous_task = json.dumps(previous_task)
+        except Exception:  # pragma: no cover - best effort
+            previous_task = str(previous_task)
+
+    if isinstance(llm_response, (dict, list)):
+        try:
+            llm_response = json.dumps(llm_response)
+        except Exception:  # pragma: no cover - defensive path
+            llm_response = str(llm_response)
 
     # 2. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
         "goal": goal,
         "level": level,
         "previous_task": previous_task,
-        "llm_response": history_list[-1]["response"] if history_list else "",
-        "modification_reason": payload.get("modification_reason")
+        "llm_response": llm_response,
+        "modification_reason": payload.get("modification_reason"),
     }
 
     # 3. Prepare Headers --> include also the authentication token if available.
@@ -273,47 +290,76 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 5. Convert LLM challenge format (challenges_list) into tasks timeline expected downstream
     result = response.get("result") or {}
-    challenge_data: dict | None = result.get("challenge_data")
-    challenge_meta: dict | None = result.get("challenge_meta")
-    if challenge_data is not None and challenge_meta is not None:
-        challenges = challenge_data.get("challenges_list") or []
-        available_days: list = challenge_meta.get("preferred_days") or []
-        sorted_available_days = []
-        tasks: dict[str, dict[str, Any]] = {}
-        current_day = timing.now().date()
-        for idx, ch in enumerate(challenges):
-            if not sorted_available_days:
-                sorted_available_days = timing.sort_days(
-                    days=available_days,
-                    enable_offset_wrt_today=True
-                )
-            to_match_day = sorted_available_days.pop(0)
-            while timing.weekday(current_day) != to_match_day:
-                next_day = timing.next_day(current_day)
-                current_day = next_day
-            date_str = str(current_day)
-            title = ch.get("challenge_title") or f"Challenge {idx+1}"
-            desc = ch.get("challenge_description") or ""
-            diff = str(ch.get("difficulty") or "easy")
-            tasks[date_str] = {
-                "title": title,
-                "description": desc,
-                "difficulty": diff
-            }
+    challenge_data_raw = result.get("challenge_data")
+    if isinstance(challenge_data_raw, dict):
+        challenge_data: dict | None = challenge_data_raw
     else:
-        if challenge_meta is None:
-            error_msg = f"LLM response has the field 'challenge_meta' as None: {result}"
-        else:
-            error_msg = f"LLM response has the field 'challenge_data' as None: {result}"
+        challenge_data = None
+
+    challenge_meta_raw = result.get("challenge_meta")
+    if isinstance(challenge_meta_raw, dict):
+        challenge_meta: dict | None = challenge_meta_raw
+    elif isinstance(challenge_meta_raw, list):
+        challenge_meta = next((item for item in challenge_meta_raw if isinstance(item, dict)), None)
+    else:
+        challenge_meta = None
+
+    if challenge_data is None or challenge_meta is None:
+        missing = "challenge_data" if challenge_data is None else "challenge_meta"
+        error_msg = f"LLM response missing '{missing}': {result}"
         logger.error(error_msg)
         return {"status": False, "error": error_msg}
+
+    challenges = challenge_data.get("challenges_list") or []
+    available_days_raw = challenge_meta.get("preferred_days")
+    available_days: list = available_days_raw if isinstance(available_days_raw, list) else []
+    sorted_available_days = []
+    tasks: dict[str, dict[str, Any]] = {}
+    current_day = timing.now().date()
+    for idx, ch in enumerate(challenges):
+        if not sorted_available_days:
+            sorted_available_days = timing.sort_days(
+                days=available_days,
+                enable_offset_wrt_today=True
+            )
+            if not sorted_available_days:
+                sorted_available_days = timing.sort_days(
+                    days=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                    enable_offset_wrt_today=True,
+                )
+        to_match_day = sorted_available_days.pop(0)
+        while timing.weekday(current_day) != to_match_day:
+            next_day = timing.next_day(current_day)
+            current_day = next_day
+        date_str = str(current_day)
+        title = ch.get("challenge_title") or f"Challenge {idx+1}"
+        desc = ch.get("challenge_description") or ""
+        diff = str(ch.get("difficulty") or "easy")
+        tasks[date_str] = {
+            "title": title,
+            "description": desc,
+            "difficulty": diff
+        }
+
+    raw_response = {
+        "challenge_data": challenge_data_raw,
+        "challenge_meta": challenge_meta_raw,
+    }
+    try:
+        response_text = json.dumps(raw_response)
+    except Exception as exc:  # pragma: no cover - best effort serialization
+        logger.warning("Failed to serialize LLM raw response: %s", exc)
+        response_text = json.dumps({"challenge_data": bool(challenge_data), "challenge_meta": bool(challenge_meta)})
     
     return {
         "status": True,
         "result": {
+            "prompt": goal,
+            "response": response_text,
             "tasks": tasks,
             "time_frame_days": challenge_meta.get("time_frame_days"),
             "preferred_days": challenge_meta.get("preferred_days"),
-            "goal_title": challenge_meta.get("goal_title")
+            "goal_title": challenge_meta.get("goal_title"),
+            "raw_response": raw_response,
         }
     }

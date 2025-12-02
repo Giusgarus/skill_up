@@ -387,6 +387,41 @@ def validate_ai_response(response_data: dict):
     return True, None
 
 
+def validate_replan_task_response(response_data: dict):
+    """
+    Validate the single-task payload returned by /replan-task.
+    Expected keys:
+        - challenge_title: str
+        - challenge_description: str
+        - difficulty: str
+        - day_offset: int (optional but recommended)
+    """
+    if not isinstance(response_data, dict):
+        return False, "Invalid response structure: not an object"
+
+    required_keys = ["challenge_title", "challenge_description", "difficulty"]
+    for k in required_keys:
+        if k not in response_data:
+            return False, "Invalid response structure: Missing required keys"
+
+    if not isinstance(response_data["challenge_title"], str):
+        return False, "Invalid title format"
+    if not isinstance(response_data["challenge_description"], str):
+        return False, "Invalid description format"
+    if not isinstance(response_data["difficulty"], str):
+        return False, "Invalid difficulty format"
+
+    # Normalize difficulty
+    if response_data["difficulty"] not in ["Easy", "Medium", "Hard"]:
+        response_data["difficulty"] = "Easy"
+
+    # day_offset is optional but must be numeric if present
+    if "day_offset" in response_data and not isinstance(response_data["day_offset"], (int, float)):
+        return False, "Invalid day_offset format"
+
+    return True, None
+
+
 def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modificaiton_reason: Optional[str] = ""):
     try:
         existing_data = json.loads(llm_response)
@@ -497,7 +532,7 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
 
         challenge_data = json.loads(json_text)
 
-        is_valid, validation_error = validate_ai_response(challenge_data)
+        is_valid, validation_error = validate_replan_task_response(challenge_data)
         if not is_valid:
             logger.error("AI response validation failed: %s", validation_error)
             raise ValueError(f"Invalid AI response: {validation_error}")
