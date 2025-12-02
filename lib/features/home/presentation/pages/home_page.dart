@@ -1197,7 +1197,7 @@ class _HomePageState extends State<HomePage> {
             left: 0,
             right: 0,
             child: Container(
-              height: 280, // 👈 un po’ più lungo per coprire il summary
+              height: 290, // 👈 un po’ più lungo per coprire il summary
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
