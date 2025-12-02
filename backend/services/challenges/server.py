@@ -1073,7 +1073,7 @@ def get_prompt(payload: Goal) -> dict:
         "history": [],  # empty because this is a new plan
         "user_info": dh.get_user_info(user_id),
     }
-    llm_resp = llm.get_llm_replan_response(llm_payload)
+    llm_resp = llm.get_llm_response(llm_payload)
     if not llm_resp.get("status"):
         err_msg = llm_resp.get("error", "Unknown error from LLM service")
         logger.error(f"LLM service error for user {user_id}: {err_msg}")
