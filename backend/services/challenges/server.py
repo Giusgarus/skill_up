@@ -931,10 +931,6 @@ def get_prompt(payload: Goal) -> dict:
     # 3. Validation of the result
     result_payload = llm_resp["result"]
     result_payload["prompt"] = user_goal
-    is_valid, validation_error = llm.validate_challenges(result_payload)
-    if not is_valid:
-        logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result_payload)[:500])
-        raise HTTPException(status_code=503, detail=f"Invalid LLM response: {validation_error}")
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
         raise HTTPException(status_code=502, detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.")

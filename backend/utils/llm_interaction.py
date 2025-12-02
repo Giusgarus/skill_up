@@ -54,6 +54,7 @@ def validate_challenges(resp: Dict[str, Any]) -> Tuple[bool, str]:
 
         {
             "prompt": str, # the used prompt to get this tasks
+            "n_tasks": int,
             "tasks": {
                 "date1":  {"title": str, "description": str, "difficulty": str},
                 "date2":  {"title": str, "description": str, "difficulty": str},
