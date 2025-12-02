@@ -2940,22 +2940,27 @@ class _TaskMenuItemLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color accentStart = const Color(0xFFFF9A9E);
-    final Color accentEnd   = const Color(0xFFFFCF71);
-
     final Color textColor =
     isDestructive ? Colors.red.shade700 : Colors.black;
 
     return Row(
       children: [
-        // piccolo pallino con gradiente dell’app
+        // piccolo pallino con gradiente
         Container(
           width: 28,
           height: 28,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: LinearGradient(
-              colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+              colors: isDestructive
+                  ? [
+                const Color(0xFFFF9A9E), // inizio come prima
+                const Color(0xFFFFC5F4), // 🔥 rosso puro
+              ]
+                  : [
+                const Color(0xFFFF9A9E),
+                const Color(0xFFFFCF71),
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
