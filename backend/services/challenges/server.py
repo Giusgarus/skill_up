@@ -90,7 +90,6 @@ class ScoreResponse(StatusResponse):
 
 
 class PlanCreationResponse(StatusResponse):
-    model_config = ConfigDict(extra="allow")
     plan_id: int = Field(..., description="Identifier of the created plan.")
     prompt: Optional[str] = Field(None, description="Prompt used to generate the plan.")
     response: Optional[Any] = Field(None, description="Response from the model or preset.")
@@ -935,13 +934,10 @@ def get_prompt(payload: Goal) -> dict:
     is_valid, validation_error = llm.validate_challenges(result_payload)
     if not is_valid:
         logger.error("LLM response failed validation: %s -- response: %s", validation_error, str(result_payload)[:500])
-        return {"status": False, "error": f"Invalid LLM response: {validation_error}"}
+        raise HTTPException(status_code=503, detail=f"Invalid LLM response: {validation_error}")
     tasks_payload = result_payload.get("tasks")
     if not tasks_payload:
-        raise HTTPException(
-            status_code=502,
-            detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.",
-        )
+        raise HTTPException(status_code=502, detail=_extract_error_message(result_payload) or "Plan generation returned no valid tasks.")
     fallback_error = _extract_error_message(result_payload)
     return _insert_plan_for_user(
         user_id=user_id,
