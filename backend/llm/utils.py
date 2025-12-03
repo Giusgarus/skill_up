@@ -43,7 +43,7 @@ def challenge_sanitization(goal: str):
     Output a JSON object with two fields: "time_frame_days" indicating the total number of days available to complete the challenges (integer), and "preferred_days" which is a list of strings indicating the preferred days of the week (e.g., ["Monday", "Wednesday"]).
     If no specific time frame or preferred days are mentioned, return time_frame_days as 0 and preferred_days as a list of all the days of the week.
     Additionally, if the goal is not feasible within the indicated time frame or days, set time_frame_days to 0 and pick 4 random days for preferred_days.
-    Finally, add a one or two words discription of the goal in a field called "goal_title".
+    Finally, add a one or two words discription of the goal in a field called "goal_title". Make sure it is concise and relevant to the user's goal.
     OUTPUT SCHEMA:
     {
         time_frame_days: <int>,
