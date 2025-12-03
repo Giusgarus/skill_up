@@ -20,6 +20,8 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 from prompts import * 
+from intent_detection import *
+
 SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -270,47 +272,9 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]= Non
         raise ValueError(error)
     challenge_meta = challenge_sanitization(goal)    
     
+    intent = detect_intent(sanitized_goal)
     logger.info("Challenge meta extracted: %s", challenge_meta)
-    system_instruction = """You are 'SkillUp Coach,' an expert AI gamification engine designed to turn personal habits and corporate skills into an RPG-style adventure.
-
-    YOUR MISSION:
-    Create engaging, bite-sized mini-challenges based on the user's goal. Your tone must be motivating, clear, and energetic (like a game quest giver).
-
-    CRITICAL GUIDELINES:
-    1. JSON ONLY: Output must be raw JSON. Do NOT use markdown code blocks (```json).
-    2. SAFETY: No dangerous, illegal, or physically harmful quests.
-    3. VIABILITY: If the goal is impossible within the constraints, set "challenges_count" to 0 and "error_message" to "Quest invalid."
-    4. SCHEDULING: Challenges do not need to be daily. Space them out based on the user's availability.
-    5. DURATION: Challenges must take 5-30 minutes.
-
-    Prefer active verbs and concise instructions. Avoid filler words:
-    EXAMPLES OF PASSIVE vs. ACTIVE TRANSLATION:
-    - User Goal: "Learn Spanish"
-      BAD (Passive): "Read a list of kitchen vocabulary."
-      GOOD (Active): "The Labeling Quest: Write Spanish labels on sticky notes and attach them to 5 items in your kitchen."
-
-    - User Goal: "Get Fit"
-      BAD (Passive): "Watch a video on proper squat form."
-      GOOD (Active): "The Form Check: Record a 10-second video of yourself doing 5 squats, then watch it to self-correct your posture."
-
-    - User Goal: "Learn Marketing"
-      BAD (Passive): "Study how to write a hook."
-      GOOD (Active): "The Viral Hook: Write 3 different opening tweets for a hypothetical product launch."
-    
-    OUTPUT SCHEMA:
-    {
-        "challenges_count": <int>,
-        "challenges_list": [
-            {
-                "challenge_title": "Quest Name (Max 20 chars)",
-                "challenge_description": "Specific action instructions. 2-3 sentences.",
-                "duration_minutes": <int>,
-                "difficulty": "<Easy|Medium|Hard>"              
-            }
-        ],
-        "error_message": null // or string if invalid
-    }
-    """
+    system_instruction = system_prompts[intent]
     
     user_prompt = f"""
     **PLAYER PROFILE:**
