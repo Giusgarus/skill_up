@@ -3,6 +3,8 @@ import json
 import logging
 import re
 import requests
+import time
+import random
 
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -17,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
-
+from prompts import * 
 SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -32,100 +34,114 @@ model = genai.GenerativeModel(
 )
 
 
-def challenge_sanitization(goal: str):
-    # sanitized_goal, _, _, error = validate_and_sanitize_input(goal)
-    # if error:
-    #     raise ValueError(error)
-    # pprint.pprint(sanitized_goal)
-    system_instruction = """ You are an expert in Managing and scheduling tasks to help users achieve their personal development goals through gamified mini-challenges.
-    Your task is to find if the user indicates a time frame and days they prefer to completing the challenges.
-    The time can be explicit (e.g., "in 2 weeks", "by next month", "over the next 10 days") or they can indicate days in which they are more available (e.g., "on weekends", "on weekdays", "on Mondays and Wednesdays").
-    Output a JSON object with two fields: "time_frame_days" indicating the total number of days available to complete the challenges (integer), and "preferred_days" which is a list of strings indicating the preferred days of the week (e.g., ["Monday", "Wednesday"]).
-    If no specific time frame or preferred days are mentioned, return time_frame_days as 0 and preferred_days as a list of all the days of the week.
-    Additionally, if the goal is not feasible within the indicated time frame or days, set time_frame_days to 0 and pick 4 random days for preferred_days.
-    Finally, add a one or two words discription of the goal in a field called "goal_title". Make sure it is concise and relevant to the user's goal.
-    OUTPUT SCHEMA:
-    {
-        time_frame_days: <int>,
-        preferred_days: [<str>, <str>, ...],
-        goal_title: "<str>"
-        
-    }
-    Let's handle this step by step.
-    """
-    user_prompt = f"""
+def challenge_sanitization(goal: str, max_tries:int=3,
+                            initial_max_tokens = 2000, 
+                            max_token_cap=10000, 
+                            token_increase_strategy="mul", # "add" or "mul" 
+                            add_step=150,
+                            mul_factor=2,
+                            short_system_override=None):
+    
+    sanitization_user_prompt = f"""
     **PLAYER PROFILE:**
     - **Goal:** "{goal}"
     """
     
-    assistent = """ 
-    user_goal: "I want to improve my focus and productivity over the next 3 weeks focusing on weekdays."
-    Output: {
-        time_frame_days: 21,
-        preferred_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        goal_title: "Productivity"
-    }
-    
-    user_goal: "I want to learn Russian I am not free on Wednesdays and Fridays."
-    Output: {
-        time_frame_days: 0,
-        preferred_days: ["Monday", "Tuesday", "Thursday", "Saturday", "Sunday"],
-        goal_title: "Russian"
-    }
-    
-    user_goal: "I want to get fit in 14 days working out on weekends."
-    Output: {
-        time_frame_days: 14,
-        preferred_days: ["Saturday", "Sunday"],
-        goal_title: "fitness"
-    }
-    
-    user_goal: "I want to become a famous graphiti artist in one week."
-    Output: {
-        time_frame_days: 0,
-        preferred_days: [Monday, Wednesday, Friday, Saturday],
-        goal_title: "Graffiti"
-    }
-    """
-    try:
-        logger.info("Generating challenge for sanitized goal: %s...", goal[:50])
+    max_tokens = initial_max_tokens
+    last_exception = None
+    for attempt in range(1, max_tries + 1):
+        
+            logger.info("Generating challenge for sanitized goal: %s...", goal)
+            response = model.generate_content(
+                [sanitization_system_instruction, sanitization_user_prompt, sanitization_assistent],
+                generation_config={
+                    "temperature": 0.0,
+                    "top_p": 0.95,
+                    "max_output_tokens": max_tokens,
+                    "response_mime_type": "application/json",
+                }
+            )
+            logger.info("Response received: %s", response)
+            logger.debug("Raw response: %s", response)
 
-        response = model.generate_content(
-            [system_instruction, user_prompt, assistent],
-            generation_config={
-                "temperature": 0.0,
-                "top_p": 0.95,
-                "max_output_tokens": 30000,
-                "response_mime_type": "application/json",
-            }
-        )
-        logger.info("Response received: %s", response)
-        # Safety filter check / empty response
-        if hasattr(response, "prompt_feedback") and response.prompt_feedback:
-            logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
-        json_text = _extract_text_or_raise(response, "challenge_sanitization").strip()
+            # Log usage if available
+            try:
+                usage = getattr(response, "result", None) and response.result.usage_metadata or getattr(response, "usage_metadata", None)
+                logger.info("Usage metadata (attempt %d): %s", attempt, usage)
+            except Exception:
+                pass
 
-        # strip triple-backtick codeblocks if present
-        if json_text.startswith("```"):
-            parts = json_text.split("```")
-            if len(parts) >= 2:
-                json_text = parts[1]
-                if json_text.startswith("json"):
-                    json_text = json_text[4:]
-                json_text = json_text.strip()
+            # get finish reason if present
+            finish_reason = None
+            try:
+                finish_reason = response.result.candidates[0].finish_reason
+            except Exception:
+                try:
+                    finish_reason = response.candidates[0].finish_reason
+                except Exception:
+                    finish_reason = None
+            logger.info("Finish reason: %s", finish_reason)
+            # If no text was returned, treat as failure; if finish_reason==MAX_TOKENS also treat as truncated
+            logger.info("Finish reason: %s", finish_reason)
 
-        challenge_data = _loads_with_repair(json_text, "challenge_sanitization")
+            # Normalize finish_reason to a string (handles str, enum, objects with .name, etc.)
+            fr_str = None
+            if finish_reason is None:
+                fr_str = ""
+            else:
+                # If it's an enum with .name, that gives "MAX_TOKENS"; otherwise fall back to str()
+                fr_name = getattr(finish_reason, "name", None)
+                fr_str = (fr_name if isinstance(fr_name, str) else str(finish_reason)).upper()
 
-        logger.info("Challenge generated and validated successfully")
-        return challenge_data
+            # If no text was returned, treat as failure; if finish_reason indicates truncation also treat as truncated
+            if "MAX" in fr_str:
+                logger.info("Truncated by MAX_TOKENS (finish_reason=%s).", finish_reason)
 
-    except json.JSONDecodeError as e:
-        logger.error("JSON parsing error: %s", e)
-        logger.error("Response text: %s", response.text if response else "None")
-        raise ValueError("Failed to parse AI response")
-    except Exception as e:
-        logger.error("Error generating challenge: %s", str(e), exc_info=True)
-        raise
+                if token_increase_strategy == "add":
+                    new_max = max_tokens + add_step
+                else:  # "mul"
+                    new_max = int(max_tokens * mul_factor)
+
+                # clamp to cap
+                if new_max > max_token_cap:
+                    logger.info("New token request %d exceeds cap %d. Will not increase further.", new_max, max_token_cap)
+                    # If we've exhausted increases, fall back to a short-system retry or break
+                    if attempt == max_tries:
+                        last_exception = RuntimeError("Reached token cap and retry limit; model truncated output")
+                        break
+                else:
+                    max_tokens = new_max
+                    # backoff with jitter to avoid hammering
+                    backoff = min(2 ** attempt, 8) + random.random() * 0.3
+                    time.sleep(backoff)
+                    continue  # retry with higher token budget
+                    
+            # Safety filter check / empty response
+            if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+                logger.warning("Response blocked by safety filters: %s", response.prompt_feedback)
+            json_text = _extract_text_or_raise(response, "challenge_sanitization").strip()
+
+            # strip triple-backtick codeblocks if present
+            if json_text.startswith("```"):
+                parts = json_text.split("```")
+                if len(parts) >= 2:
+                    json_text = parts[1]
+                    if json_text.startswith("json"):
+                        json_text = json_text[4:]
+                    json_text = json_text.strip()
+
+            challenge_data = _loads_with_repair(json_text, "challenge_sanitization")
+
+            logger.info("Challenge generated and validated successfully")
+            return challenge_data
+
+        # except json.JSONDecodeError as e:
+        #     logger.error("JSON parsing error: %s", e)
+        #     logger.error("Response text: %s", response.text if response else "None")
+        #     raise ValueError("Failed to parse AI response")
+        # except Exception as e:
+        #     logger.error("Error generating challenge: %s", str(e), exc_info=True)
+        #     raise
 
 # -----------------------
 # Core AI Function
@@ -248,11 +264,12 @@ def _loads_with_repair(json_text: str, context: str):
         repaired = _repair_json_string(json_text)
         return json.loads(repaired)
 
-def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
+def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]= None):
     sanitized_goal, sanitized_level, sanitized_history, error = validate_and_sanitize_input(goal, level, history)
     if error:
         raise ValueError(error)
-    challenge_meta = challenge_sanitization(goal)
+    challenge_meta = challenge_sanitization(goal)    
+    
     logger.info("Challenge meta extracted: %s", challenge_meta)
     system_instruction = """You are 'SkillUp Coach,' an expert AI gamification engine designed to turn personal habits and corporate skills into an RPG-style adventure.
 
@@ -310,14 +327,14 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]):
     """
 
     try:
-        logger.info("Generating challenge for sanitized goal: %s...", sanitized_goal[:50])
+        logger.info("Generating challenge for sanitized goal: %s...", sanitized_goal)
 
         response = model.generate_content(
             [system_instruction, user_prompt],
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 20000,
+                "max_output_tokens": 3000,
                 "response_mime_type": "application/json",
             }
         )
@@ -632,7 +649,7 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
         """
 
     try:
-        logger.info("Generating challenge for sanitized goal: %s...", sanitized_goal[:50])
+        logger.info("Generating challenge for sanitized goal: %s...", sanitized_goal)
 
         response = model.generate_content(
             [system_instruction, user_prompt],

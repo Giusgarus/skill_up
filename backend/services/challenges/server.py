@@ -1355,7 +1355,7 @@ async def replan(payload: Replan) -> dict:
     llm_payload = {
         "goal": combined_goal or llm_goal,
         "level": _difficulty_level_from_value(plan.get("difficulty")),
-        "history": history,
+        "history": None,
         "user_info": dh.get_user_info(user_id),
     }
     llm_resp = llm.get_llm_response(llm_payload)
