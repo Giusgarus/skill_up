@@ -12,7 +12,7 @@ from typing import Annotated, List, Set, Any, Dict, Optional
 from pymongo import ReturnDocument, ASCENDING, DESCENDING
 import backend.utils.llm_interaction as llm
 import backend.utils.data_handler as dh
-from backend.services.gathering import server as gathering_server
+import backend.utils.utility as util
 
 logger = logging.getLogger(__name__)
 
@@ -471,7 +471,7 @@ async def retask(payload: Retask) -> dict:
     ok, user_id = session.verify_session(payload.token)
     plan_id = payload.plan_id
     task_id = payload.task_id
-    modification_reason = payload.modification_reason
+    modification_reason = util.replace_special_characters(payload.modification_reason)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
     if plan_id is None:
@@ -1013,7 +1013,7 @@ async def task_undo(payload: Task) -> dict:
 def report(payload: Report) -> dict:
     plan_id = payload.plan_id
     task_id = payload.task_id
-    report_str = payload.report
+    report_str = util.replace_special_characters(payload.report)
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
@@ -1058,7 +1058,7 @@ def report(payload: Report) -> dict:
 )
 def get_prompt(payload: Goal) -> dict:
     token = payload.token
-    user_goal = payload.goal
+    user_goal = util.replace_special_characters(payload.goal)
     llm_goal = (user_goal or "")[:500]
 
     # 1. Verify Session
@@ -1308,7 +1308,7 @@ async def get_active_plan(payload: User) -> dict:
 )
 async def replan(payload: Replan) -> dict:
     plan_id = payload.plan_id
-    new_goal = payload.new_goal
+    new_goal = util.replace_special_characters(payload.new_goal)
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")

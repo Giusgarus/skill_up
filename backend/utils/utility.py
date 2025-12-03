@@ -1,3 +1,6 @@
+import re
+
+
 table_primary_keys_dict = {
     # These are Lists of Strings
     "users": ["user_id", "username", "email"], 
@@ -34,3 +37,6 @@ def check_primary_keys(table_name: str, record: dict):
                 return True
                 
     return False
+
+def replace_special_characters(s: str) -> str:
+    return re.sub(r"[^\w\s]+", "", s, flags=re.UNICODE).replace("_", "")
