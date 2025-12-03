@@ -111,6 +111,14 @@ class DailyTaskCompletionStorage {
     return result;
   }
 
+  Future<void> clearUser(String username) async {
+    final root = await _readRaw();
+    if (root.containsKey(username)) {
+      root.remove(username);
+      await _writeRaw(root);
+    }
+  }
+
   Future<void> setTaskStatus(
     DateTime day,
     String taskId,

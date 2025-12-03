@@ -19,6 +19,7 @@ class ProfileApi {
       Uri.parse(baseUrl).resolve('/services/gathering/get');
 
   static const List<String> _attributesToFetch = <String>[
+    'score',
     'username',
     'name',
     'surname',

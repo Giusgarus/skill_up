@@ -4,6 +4,11 @@ import 'package:skill_up/features/auth/data/services/auth_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/auth/presentation/pages/login_page.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
+import 'package:skill_up/features/home/data/daily_task_completion_storage.dart';
+import 'package:skill_up/features/home/data/medal_history_repository.dart';
+import 'package:skill_up/features/home/data/user_stats_repository.dart';
+import 'package:skill_up/features/profile/data/user_profile_info_storage.dart';
+import 'package:skill_up/features/profile/data/user_profile_storage.dart';
 
 /// Simple settings page with quick-access actions.
 class SettingsPage extends StatefulWidget {
@@ -19,6 +24,13 @@ class _SettingsPageState extends State<SettingsPage> {
   final _authApi = AuthApi();
   final _sessionStorage = AuthSessionStorage();
   final TaskApi _taskApi = TaskApi();
+  final DailyTaskCompletionStorage _taskCompletionStorage =
+      DailyTaskCompletionStorage.instance;
+  final MedalHistoryRepository _medalRepository =
+      MedalHistoryRepository.instance;
+  final UserProfileStorage _profileStorage = UserProfileStorage.instance;
+  final UserProfileInfoStorage _profileInfoStorage =
+      UserProfileInfoStorage.instance;
   bool _loggingOut = false;
   bool _loadingPlans = false;
   String? _plansError;
@@ -70,45 +82,62 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     setState(() => _loggingOut = true);
 
+    LogoutResult? result;
+    String? username;
     try {
       final session = await _sessionStorage.readSession();
-      if (!mounted) {
-        return;
+      username = session?.username;
+      if (session != null) {
+        result = await _authApi.logout(
+          username: session.username,
+          token: session.token,
+        );
+      } else {
+        result = const LogoutResult.failure('Nessuna sessione attiva.');
       }
-      if (session == null) {
-        _showError('Nessuna sessione attiva.');
-        return;
-      }
-      final result = await _authApi.logout(
-        username: session.username,
-        token: session.token,
-      );
-      if (!mounted) {
-        return;
-      }
-      if (result.isSuccess) {
-        await _sessionStorage.clearSession();
-        if (!mounted) {
-          return;
+    } catch (_) {
+      result = const LogoutResult.failure('Logout request failed.');
+    } finally {
+      await _clearLocalUserData(username);
+      await _sessionStorage.clearSession(); // always clear locally
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+        if (result != null && !result.isSuccess) {
+          final msg = result.errorMessage ?? 'Session ended locally (token non valido).';
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: Colors.orangeAccent,
+            ),
+          );
         }
         Navigator.pushNamedAndRemoveUntil(
           context,
           LoginPage.route,
           (_) => false,
         );
-        return;
-      }
-      _showError(result.errorMessage ?? 'Logout non riuscito, riprova.');
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      _showError('Errore inaspettato. Riprova.');
-    } finally {
-      if (mounted) {
         setState(() => _loggingOut = false);
       }
     }
+  }
+
+  Future<void> _clearLocalUserData(String? username) async {
+    final user = username ?? '';
+    try {
+      await _taskCompletionStorage.clearUser(user);
+    } catch (_) {}
+    try {
+      _medalRepository.clearForUser(user);
+    } catch (_) {}
+    try {
+      UserStatsRepository.instance.resetStats();
+    } catch (_) {}
+    try {
+      if (user.isNotEmpty) {
+        await _profileStorage.clearProfileImage(user);
+        await _profileInfoStorage.clear(user);
+      }
+    } catch (_) {}
   }
 
   void _showError(String message) {

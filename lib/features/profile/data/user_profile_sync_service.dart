@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../home/data/medal_history_repository.dart';
+import '../../home/data/user_stats_repository.dart';
 import '../../home/domain/medal_utils.dart';
 import '../domain/user_profile_fields.dart';
 import 'profile_api.dart';
@@ -124,6 +125,15 @@ class UserProfileSyncService {
     if (data.containsKey('medals')) {
       final parsedMedals = parseBackendMedals(data['medals']);
       _medalRepository.replaceAll(parsedMedals);
+    }
+    final scoreRaw = data['score'];
+    if (scoreRaw is num) {
+      UserStatsRepository.instance.syncFromScore(scoreRaw.toInt());
+    } else if (scoreRaw is String) {
+      final parsed = int.tryParse(scoreRaw);
+      if (parsed != null) {
+        UserStatsRepository.instance.syncFromScore(parsed);
+      }
     }
     final fieldSource = data['fields'] is Map ? data['fields'] as Map : data;
     final normalizedFields = <String, dynamic>{};

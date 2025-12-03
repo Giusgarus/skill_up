@@ -30,6 +30,12 @@ const List<UserProfileField> kUserProfileFields = [
     hint: 'Enter name',
   ),
   UserProfileField(
+    id: 'age',
+    label: 'Your age',
+    hint: 'Enter age',
+    keyboardType: TextInputType.number,
+  ),
+  UserProfileField(
     id: 'gender',
     label: 'Your gender',
     hint: 'Enter gender',

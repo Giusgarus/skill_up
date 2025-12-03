@@ -405,7 +405,7 @@ class _HomePageState extends State<HomePage> {
       final normalized = dateOnly(day);
       _completedTasksByDay.putIfAbsent(
         normalized,
-        () => null,
+        () => null,  // keep null so _medalForDay can fall back to repository medals
       );
     }
   }
@@ -656,11 +656,7 @@ class _HomePageState extends State<HomePage> {
         map[normalized] = MedalType.none;
         continue;
       }
-      final completed = _completedForDay(normalized);
-      map[normalized] = medalForProgress(
-        completed: completed,
-        total: _totalTasksForDay(normalized),
-      );
+      map[normalized] = _medalForDay(normalized);
     }
     return map;
   }
