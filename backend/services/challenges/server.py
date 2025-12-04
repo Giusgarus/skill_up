@@ -321,18 +321,20 @@ def _insert_plan_for_user(
     if update_user_res.matched_count == 0:
         raise HTTPException(
             status_code=503, detail="Invalid user_id while creating plan"
-        )
+    )
 
     difficulty_values: List[int] = [
         CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)  # default difficulty
         for _, task in normalized_tasks
     ]
+    first_task_title = normalized_tasks[0][1].get("title") if normalized_tasks else None
 
     res = db.insert(
         table_name="plans",
         record={
             "plan_id": plan_id,
             "user_id": user_id,
+            "plan_name": first_task_title,
             "n_tasks": len(normalized_tasks),  # current tasks count
             "n_tasks_done": 0,
             "responses": [response_payload],
@@ -1213,6 +1215,7 @@ async def get_active_plan(payload: User) -> dict:
                 "n_replans": True,
                 "deleted": True,
                 "tasks": True,
+                "plan_name": True,
             },
         )
         if not plan:
@@ -1249,6 +1252,11 @@ async def get_active_plan(payload: User) -> dict:
             )
 
         plan["tasks_all_info"] = tasks_list or []
+        if not plan.get("plan_name"):
+            try:
+                plan["plan_name"] = (tasks_list or [])[0].get("title")
+            except Exception:
+                plan["plan_name"] = None
         all_plans.append(plan)
 
     return {"status": True, "plans": all_plans}

@@ -36,7 +36,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, TextEditingController> _controllers =
-      <String, TextEditingController>{};
+  <String, TextEditingController>{};
   final Map<String, Timer?> _debounceTimers = <String, Timer?>{};
   final Map<String, String> _cachedValues = <String, String>{};
 
@@ -103,6 +103,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
     final result = await _taskApi.fetchActivePlansDetailed(
       token: session.token,
     );
+
     if (!mounted) return;
     setState(() {
       _loadingPlans = false;
@@ -862,9 +863,11 @@ class _PlanCard extends StatelessWidget {
     final total = plan.tasks.length;
     final completed = plan.tasks.where((t) => t.isCompleted).length;
     final progress = total == 0 ? 0.0 : completed / total;
-    final displayTitle = (plan.prompt?.trim().isNotEmpty ?? false)
-        ? plan.prompt!.trim()
-        : 'Plan #${plan.planId}';
+    final displayTitle = (plan.planName?.trim().isNotEmpty ?? false)
+        ? plan.planName!.trim()
+        : (plan.prompt?.trim().isNotEmpty ?? false)
+            ? plan.prompt!.trim()
+            : 'Plan #${plan.planId}';
 
     return GestureDetector(
       onTap: sessionToken == null

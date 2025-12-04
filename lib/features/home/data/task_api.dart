@@ -128,6 +128,7 @@ class RemotePlan {
     required this.tasks,
     this.createdAt,
     this.expectedCompletion,
+    this.planName,
     this.prompt,
   });
 
@@ -135,6 +136,7 @@ class RemotePlan {
   final List<RemoteTask> tasks;
   final DateTime? createdAt;
   final DateTime? expectedCompletion;
+  final String? planName;
   final String? prompt;
 }
 
@@ -272,6 +274,7 @@ class TaskApi {
             if (expected!.isBefore(planExpected)) expected = planExpected;
           }
           prompt ??= plan['prompt'] as String?;
+          prompt ??= plan['plan_name'] as String?;
           responsePayload ??= plan['response'];
         }
 
@@ -809,6 +812,7 @@ class TaskApi {
       tasks: tasks,
       createdAt: _parseDate(plan['created_at']),
       expectedCompletion: _parseDate(plan['expected_complete']),
+      planName: plan['plan_name'] as String?,
       prompt: plan['prompt'] as String?,
     );
   }
