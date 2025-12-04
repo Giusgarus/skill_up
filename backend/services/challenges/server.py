@@ -594,7 +594,7 @@ async def retask(payload: Retask) -> dict:
     result: Dict[str, Any] = response.get("result") or {}
     difficulty_key = _difficulty_key_from_value(result.get("difficulty") or result.get("challenge_difficulty"))
     new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(difficulty_key.lower(), CHALLENGES_DIFFICULTY_MAP.get("easy", 1))
-    new_deadline_date = today_date.isoformat()
+    new_deadline_date = task_deadline_date
     if result.get("day_offset") is not None:
         try:
             offset_days = int(result.get("day_offset"))
