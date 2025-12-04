@@ -650,14 +650,37 @@ class _HomePageState extends State<HomePage> {
 
   Map<DateTime, MedalType> _buildWeekMedals() {
     final map = <DateTime, MedalType>{};
+
     for (final date in _currentWeek) {
       final normalized = dateOnly(date);
+
+      // no medals for the future
       if (normalized.isAfter(_today)) {
         map[normalized] = MedalType.none;
+        _medalRepository.setMedalForDay(normalized, MedalType.none);
         continue;
       }
-      map[normalized] = _medalForDay(normalized);
+
+      final total = _totalTasksForDay(normalized);
+      final completed = _completedForDay(normalized);
+
+      // if no task are done medal is empty
+      MedalType medal;
+      if (total <= 0 || completed <= 0) {
+        medal = MedalType.none;
+      } else {
+        medal = medalForProgress(
+          completed: completed,
+          total: total,
+        );
+      }
+
+      map[normalized] = medal;
+
+      // SANITY SYNC: overwrite the medal in the repository
+      _medalRepository.setMedalForDay(normalized, medal);
     }
+
     return map;
   }
 
