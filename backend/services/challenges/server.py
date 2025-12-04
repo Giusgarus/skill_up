@@ -505,29 +505,6 @@ async def retask(payload: Retask) -> dict:
     if not plan or plan is None:
         raise HTTPException(status_code=405, detail="Invalid plan ID")
     
-    # derive plan start date to preserve scheduling offsets
-    plan_task_dates: List[date_cls] = []
-    try:
-        plan_tasks_for_offsets = db.find_many(
-            table_name="tasks",
-            filters={"user_id": user_id, "plan_id": plan_id},
-            projection={"_id": False, "deadline_date": True},
-        ) or []
-        for t in plan_tasks_for_offsets:
-            try:
-                dt = timing.from_iso_to_datetime(t.get("deadline_date")).date()
-                plan_task_dates.append(dt)
-            except Exception:
-                continue
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Unable to compute plan offsets for user %s: %s", user_id, exc)
-    try:
-        task_deadline_date = timing.from_iso_to_datetime(task.get("deadline_date")).date()
-    except Exception:
-        task_deadline_date = timing.now().date()
-    plan_start_date = min(plan_task_dates) if plan_task_dates else task_deadline_date
-    day_offset = max((task_deadline_date - plan_start_date).days, 0)
-    today_date = timing.now_local().date()
 
     # 3. Create the history for the LLM
     prompts = plan.get("prompts") if isinstance(plan.get("prompts"), list) else []
@@ -545,10 +522,9 @@ async def retask(payload: Retask) -> dict:
     previous_task_payload = {
         "challenge_title": task.get("title"),
         "challenge_description": task.get("description"),
-        "difficulty": _difficulty_key_from_value(task.get("difficulty")).title(),
-        "day_offset": day_offset,
-        "deadline_date": str(task_deadline_date),
+        "difficulty": _difficulty_key_from_value(task.get("difficulty")).title()
     }
+
     llm_response_obj = None
     for resp in reversed(responses):
         if resp is not None:
@@ -589,21 +565,16 @@ async def retask(payload: Retask) -> dict:
     result: Dict[str, Any] = response.get("result") or {}
     difficulty_key = _difficulty_key_from_value(result.get("difficulty") or result.get("challenge_difficulty"))
     new_difficulty = CHALLENGES_DIFFICULTY_MAP.get(difficulty_key.lower(), CHALLENGES_DIFFICULTY_MAP.get("easy", 1))
-    new_deadline_date = task_deadline_date
-    if result.get("day_offset") is not None:
-        try:
-            offset_days = int(result.get("day_offset"))
-            new_deadline_date = (today_date + timedelta(days=offset_days)).isoformat()
-        except Exception as exc:  # pragma: no cover - defensive conversion
-            logger.warning("Invalid day_offset returned by LLM for user %s: %s", user_id, exc)
+
     new_task = {
         "title": result.get("challenge_title") or task["title"],
         "description": result.get("challenge_description") or task["description"],
         "difficulty": new_difficulty,
         "score": new_difficulty * 10,
-        "deadline_date": new_deadline_date,
+        "deadline_date": task["deadline_date"],
         "completed_at": None
     }
+    
     updated_task = db.update_one(
         table_name="tasks",
         keys_dict={"task_id": task_id, "user_id": user_id, "plan_id": plan_id},

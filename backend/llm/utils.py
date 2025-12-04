@@ -23,10 +23,10 @@ from prompts import *
 from intent_detection import *
 
 SAFETY_SETTINGS = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
 }
 
 
@@ -37,7 +37,7 @@ model = genai.GenerativeModel(
 
 
 def challenge_sanitization(goal: str, max_tries:int=3,
-                            initial_max_tokens = 2000, 
+                            initial_max_tokens = 6000, 
                             max_token_cap=10000, 
                             token_increase_strategy="mul", # "add" or "mul" 
                             add_step=150,
@@ -198,15 +198,38 @@ def _safe_text_snippet(response, context: str = "") -> str:
             return txt[:400] + "..."
         return txt
     except Exception:
-        finish = None
-        try:
-            candidates = getattr(response, "candidates", None) or []
-            if candidates:
-                finish = getattr(candidates[0], "finish_reason", None)
-        except Exception:
-            finish = None
+        finish = _get_finish_reason(response)
         suffix = f" (finish_reason={finish})" if finish is not None else ""
         return f"[no text{suffix}]"
+
+
+def _get_finish_reason(response):
+    """Best-effort extraction of finish_reason from a Gemini response."""
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            return getattr(candidates[0], "finish_reason", None)
+    except Exception:
+        return None
+    return None
+
+
+def _response_meta_for_logging(response) -> dict:
+    """Collect metadata useful to debug empty responses (finish_reason, safety)."""
+    if response is None:
+        return {}
+    meta = {"finish_reason": _get_finish_reason(response)}
+    try:
+        meta["prompt_feedback"] = getattr(response, "prompt_feedback", None)
+    except Exception:
+        meta["prompt_feedback"] = None
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            meta["safety_ratings"] = getattr(candidates[0], "safety_ratings", None)
+    except Exception:
+        meta["safety_ratings"] = None
+    return meta
 
 
 def _extract_json_text(response, context: str) -> str:
@@ -298,7 +321,7 @@ def generate_challenge(goal: str, level: str, history: List[Dict[str, Any]]= Non
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 3000,
+                "max_output_tokens": 6000,
                 "response_mime_type": "application/json",
             }
         )
@@ -517,11 +540,12 @@ def _fallback_replan_task(previous_task: str, modification_reason: str) -> dict:
         prev = json.loads(previous_task) if previous_task else {}
     except Exception:
         prev = {}
-    title = prev.get("challenge_title") or "Task Update"
+    raw_title = prev.get("challenge_title") or "Task Update"
+    # Avoid stacking "(Updated)" over multiple fallbacks
+    title = str(raw_title).replace(" (Updated)", "").replace("(Updated)", "").strip()
     desc = prev.get("challenge_description") or ""
     if modification_reason:
         desc = f"{desc} (Adjusted: {modification_reason})" if desc else f"Adjusted: {modification_reason}"
-        title = f"{title} (Updated)"
     difficulty = prev.get("difficulty") or "Easy"
     day_offset = prev.get("day_offset", 0)
     try:
@@ -620,10 +644,11 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "max_output_tokens": 1000,
+                "max_output_tokens": 6000,
                 "response_mime_type": "application/json",
             }
         )
+        logger.info("Gemini meta (replan_task): %s", _response_meta_for_logging(response))
 
         # Safety filter check / empty response
         if hasattr(response, "prompt_feedback") and response.prompt_feedback:
@@ -655,11 +680,12 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
     except json.JSONDecodeError as e:
         logger.error("JSON parsing error: %s", e)
         logger.error("Response text: %s", response.text if response else "None")
+        logger.error("Response meta: %s", _response_meta_for_logging(response))
         raise ValueError("Failed to parse AI response")
     except ValueError as e:
-        # If the model returned no content or invalid JSON, fall back to a safe replacement
-        logger.warning("LLM replan_task returned no usable content, using fallback: %s", e)
-        return _fallback_replan_task(previous_task, modificaiton_reason)
+        # Surface the problem so we can inspect logs and tune prompts/safety
+        logger.warning("LLM replan_task returned no usable content: %s | meta=%s", e, _response_meta_for_logging(response))
+        raise
     except Exception as e:
         logger.error("Error generating challenge: %s", str(e), exc_info=True)
         raise
