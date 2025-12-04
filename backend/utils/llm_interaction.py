@@ -282,8 +282,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             continue
         prompt_val = item.get("prompt")
         resp_val = item.get("response")
-        if isinstance(resp_val, str) and len(resp_val) > 1000:
-            resp_val = resp_val[:1000]
+        #if isinstance(resp_val, str) and len(resp_val) > 1000:
+           # resp_val = resp_val[:1000]
         safe_history.append({"prompt": prompt_val, "response": resp_val})
     history_list = safe_history
 
@@ -295,8 +295,8 @@ def get_llm_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         "history": history_list,
     }
     # Cap total payload size heuristically (history already trimmed)
-    if isinstance(body["goal"], str) and len(body["goal"]) > 500:
-        body["goal"] = body["goal"][:500]
+    #if isinstance(body["goal"], str) and len(body["goal"]) > 500:
+        #body["goal"] = body["goal"][:500]
     if not body["goal"]:
         logger.error("Validation Error: Goal is empty after sanitation (input=%s)", goal)
         return {"status": False, "error": "Empty goal/prompt provided"}
