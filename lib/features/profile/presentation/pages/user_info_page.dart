@@ -36,7 +36,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, TextEditingController> _controllers =
-  <String, TextEditingController>{};
+      <String, TextEditingController>{};
   final Map<String, Timer?> _debounceTimers = <String, Timer?>{};
   final Map<String, String> _cachedValues = <String, String>{};
 
@@ -100,7 +100,9 @@ class _UserInfoPageState extends State<UserInfoPage> {
       _loadingPlans = true;
       _plansError = null;
     });
-    final result = await _taskApi.fetchActivePlansDetailed(token: session.token);
+    final result = await _taskApi.fetchActivePlansDetailed(
+      token: session.token,
+    );
     if (!mounted) return;
     setState(() {
       _loadingPlans = false;
@@ -191,8 +193,10 @@ class _UserInfoPageState extends State<UserInfoPage> {
         return;
       }
 
-      final storedFile =
-      await _profileStorage.saveProfileImage(picked, username: session.username);
+      final storedFile = await _profileStorage.saveProfileImage(
+        picked,
+        username: session.username,
+      );
       final uploadOk = await _uploadProfileImage(storedFile, session);
 
       if (!mounted) return;
@@ -231,8 +235,9 @@ class _UserInfoPageState extends State<UserInfoPage> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content:
-            Text(result.errorMessage ?? 'Error uploading profile picture.'),
+            content: Text(
+              result.errorMessage ?? 'Error uploading profile picture.',
+            ),
           ),
         );
       return false;
@@ -244,8 +249,10 @@ class _UserInfoPageState extends State<UserInfoPage> {
     if (_cachedValues[fieldId] == value) return;
 
     _debounceTimers[fieldId]?.cancel();
-    _debounceTimers[fieldId] =
-        Timer(const Duration(milliseconds: 600), () => _persistField(fieldId, value));
+    _debounceTimers[fieldId] = Timer(
+      const Duration(milliseconds: 600),
+      () => _persistField(fieldId, value),
+    );
   }
 
   Future<void> _persistField(String fieldId, String value) async {
@@ -290,8 +297,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content:
-            Text(result.errorMessage ?? 'Failed to update $fieldId.'),
+            content: Text(result.errorMessage ?? 'Failed to update $fieldId.'),
             duration: const Duration(milliseconds: 1500),
           ),
         );
@@ -332,9 +338,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => QuestionsBottomSheet(
-        initialAnswers: initialAnswers,
-      ),
+      builder: (_) => QuestionsBottomSheet(initialAnswers: initialAnswers),
     );
 
     // se ha chiuso col back / swipe giù, non faccio nulla
@@ -425,7 +429,8 @@ class _UserInfoPageState extends State<UserInfoPage> {
                           fontFamily: 'FredokaOne',
                           fontSize: 44,
                           fontWeight: FontWeight.w900,
-                          fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
+                          fontStyle: FontStyle
+                              .italic, // se vuoi la leggera inclinazione
                           color: Colors.white,
                         ),
                       ),
@@ -455,21 +460,21 @@ class _UserInfoPageState extends State<UserInfoPage> {
                                 ClipOval(
                                   child: _profileImage == null
                                       ? Center(
-                                    child: Image.asset(
-                                      'assets/icons/profile_icon.png',
-                                      width: 96,
-                                      height: 96,
-                                      fit: BoxFit.contain,
-                                      filterQuality: FilterQuality.high,
-                                    ),
-                                  )
+                                          child: Image.asset(
+                                            'assets/icons/profile_icon.png',
+                                            width: 96,
+                                            height: 96,
+                                            fit: BoxFit.contain,
+                                            filterQuality: FilterQuality.high,
+                                          ),
+                                        )
                                       : Image.file(
-                                    _profileImage!,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    fit: BoxFit.cover,
-                                    filterQuality: FilterQuality.high,
-                                  ),
+                                          _profileImage!,
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                          fit: BoxFit.cover,
+                                          filterQuality: FilterQuality.high,
+                                        ),
                                 ),
                                 Positioned(
                                   right: -2,
@@ -481,24 +486,26 @@ class _UserInfoPageState extends State<UserInfoPage> {
                                       color: Colors.black,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                          color: Colors.white, width: 3),
+                                        color: Colors.white,
+                                        width: 3,
+                                      ),
                                     ),
                                     child: _isProcessing
                                         ? const Padding(
-                                      padding: EdgeInsets.all(8),
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                        AlwaysStoppedAnimation<Color>(
-                                          Colors.white,
-                                        ),
-                                      ),
-                                    )
+                                            padding: EdgeInsets.all(8),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    Colors.white,
+                                                  ),
+                                            ),
+                                          )
                                         : const Icon(
-                                      Icons.photo_camera,
-                                      size: 20,
-                                      color: Colors.white,
-                                    ),
+                                            Icons.photo_camera,
+                                            size: 20,
+                                            color: Colors.white,
+                                          ),
                                   ),
                                 ),
                               ],
@@ -546,7 +553,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
                               : _controllers['age']!.text,
                           items: [
                             for (int years = 10; years <= 100; years++)
-                              '$years years'
+                              '$years years',
                           ],
                           onChanged: (v) {
                             _controllers['age']!.text = v;
@@ -564,7 +571,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
                             'Female',
                             'Male',
                             'Non-binary',
-                            'Prefer not to say'
+                            'Prefer not to say',
                           ],
                           onChanged: (v) {
                             _controllers['gender']!.text = v;
@@ -580,7 +587,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
                               : _controllers['weight']!.text,
                           items: List<String>.generate(
                             111,
-                                (i) => '${40 + i} kg',
+                            (i) => '${40 + i} kg',
                           ),
                           onChanged: (v) {
                             _controllers['weight']!.text = v;
@@ -596,7 +603,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
                               : _controllers['height']!.text,
                           items: [
                             for (int cm = 140; cm <= 210; cm++)
-                              '${(cm / 100).toStringAsFixed(2)} m'
+                              '${(cm / 100).toStringAsFixed(2)} m',
                           ],
                           onChanged: (v) {
                             _controllers['height']!.text = v;
@@ -611,13 +618,11 @@ class _UserInfoPageState extends State<UserInfoPage> {
                           child: Text(
                             'Personalization\nHub',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .displaySmall
+                            style: Theme.of(context).textTheme.displaySmall
                                 ?.copyWith(
-                              color: Colors.black,
-                              fontWeight: FontWeight.w900,
-                            ),
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -634,7 +639,9 @@ class _UserInfoPageState extends State<UserInfoPage> {
                             onTap: _openQuestionsEdit,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 40, vertical: 16),
+                                horizontal: 40,
+                                vertical: 16,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(40),
@@ -656,9 +663,9 @@ class _UserInfoPageState extends State<UserInfoPage> {
                                         .textTheme
                                         .titleLarge
                                         ?.copyWith(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.w900,
-                                    ),
+                                          color: Colors.black,
+                                          fontWeight: FontWeight.w900,
+                                        ),
                                   ),
                                   const SizedBox(width: 14),
                                   SvgPicture.asset(
@@ -682,13 +689,11 @@ class _UserInfoPageState extends State<UserInfoPage> {
                           child: Text(
                             'All your current\nhabits with infos',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .displaySmall
+                            style: Theme.of(context).textTheme.displaySmall
                                 ?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: Colors.black,
-                            ),
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black,
+                                ),
                           ),
                         ),
 
@@ -706,13 +711,11 @@ class _UserInfoPageState extends State<UserInfoPage> {
                         Center(
                           child: Text(
                             'That’s all for now!',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
+                            style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black.withOpacity(0.7),
-                            ),
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black.withOpacity(0.7),
+                                ),
                           ),
                         ),
                         const SizedBox(height: 60),
@@ -823,9 +826,7 @@ class _ActivePlansSection extends StatelessWidget {
         else if (plans.isEmpty)
           Text(
             'No active plans yet.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.black,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.black),
           )
         else
           Column(
@@ -845,7 +846,11 @@ class _ActivePlansSection extends StatelessWidget {
 }
 
 class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.plan, required this.sessionToken, required this.onRemove});
+  const _PlanCard({
+    required this.plan,
+    required this.sessionToken,
+    required this.onRemove,
+  });
 
   final RemotePlan plan;
   final String? sessionToken;
@@ -859,7 +864,7 @@ class _PlanCard extends StatelessWidget {
     final progress = total == 0 ? 0.0 : completed / total;
     final displayTitle = (plan.prompt?.trim().isNotEmpty ?? false)
         ? plan.prompt!.trim()
-        : (plan.tasks.isNotEmpty ? plan.tasks.first.title : 'Plan #${plan.planId}');
+        : 'Plan #${plan.planId}';
 
     return GestureDetector(
       onTap: sessionToken == null
@@ -929,7 +934,9 @@ class _PlanCard extends StatelessWidget {
                 value: progress,
                 minHeight: 10,
                 backgroundColor: Colors.grey.shade300,
-                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF9A9E)),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFFFF9A9E),
+                ),
               ),
             ),
           ],
@@ -938,7 +945,6 @@ class _PlanCard extends StatelessWidget {
     );
   }
 }
-
 
 // =======================
 //  STILI PILL
@@ -955,8 +961,7 @@ InputDecoration _pillDecoration(String hint) => InputDecoration(
   ),
   filled: true,
   fillColor: Colors.white,
-  contentPadding:
-  const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
   border: OutlineInputBorder(
     borderRadius: BorderRadius.circular(_pillRadius),
     borderSide: const BorderSide(color: Colors.white),
@@ -976,11 +981,11 @@ TextStyle _pillTextStyle(BuildContext context) =>
       fontWeight: FontWeight.w700,
       color: Colors.black,
     ) ??
-        const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          color: Colors.black,
-        );
+    const TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w700,
+      color: Colors.black,
+    );
 
 const double _labelWidth = 140;
 
@@ -1003,8 +1008,7 @@ class _PillInfoField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle =
-    Theme.of(context).textTheme.titleMedium?.copyWith(
+    final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w700,
       color: Colors.black,
     );
@@ -1027,12 +1031,12 @@ class _PillInfoField extends StatelessWidget {
               readOnly: readOnly,
               textAlign: TextAlign.center,
               textAlignVertical: TextAlignVertical.center,
-              style: _pillTextStyle(context).copyWith(
-                color: readOnly ? Colors.grey[600] : Colors.black,
-              ),
-              decoration: _pillDecoration(hint).copyWith(
-                fillColor: readOnly ? Colors.grey[200] : Colors.white,
-              ),
+              style: _pillTextStyle(
+                context,
+              ).copyWith(color: readOnly ? Colors.grey[600] : Colors.black),
+              decoration: _pillDecoration(
+                hint,
+              ).copyWith(fillColor: readOnly ? Colors.grey[200] : Colors.white),
             ),
           ),
         ),
@@ -1056,8 +1060,7 @@ class _LabeledDropdownPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle =
-    Theme.of(context).textTheme.titleMedium?.copyWith(
+    final labelStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w700,
       color: Colors.black,
     );
@@ -1097,11 +1100,11 @@ class _LabeledDropdownPill extends StatelessWidget {
               items: normalizedItems
                   .map(
                     (e) => DropdownMenuItem<String>(
-                  value: e,
-                  alignment: Alignment.center,
-                  child: Text(e, style: _pillTextStyle(context)),
-                ),
-              )
+                      value: e,
+                      alignment: Alignment.center,
+                      child: Text(e, style: _pillTextStyle(context)),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) {
                 if (v != null) onChanged(v);
@@ -1114,16 +1117,13 @@ class _LabeledDropdownPill extends StatelessWidget {
   }
 }
 
-
 class _HabitPlanPlaceholderPage extends StatelessWidget {
   const _HabitPlanPlaceholderPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Habit plan'),
-      ),
+      appBar: AppBar(title: const Text('Habit plan')),
       body: const Center(
         child: Text('Here we will show the habit details / plan.'),
       ),
