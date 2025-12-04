@@ -182,7 +182,7 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 1. Data extraction
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
-    goal = goal[:100]  # align with LLM contract
+    goal = goal[:200]  # align with LLM contract
     level = str(payload.get("level", "beginner")).lower()
     previous_task = payload.get("previous_task") or {}
     llm_response = payload.get("llm_response") or ""
