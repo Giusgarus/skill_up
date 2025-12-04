@@ -283,11 +283,6 @@ def _trim_history(history: List[Dict[str, Any]], max_items: int = 3) -> List[Dic
     for item in trimmed:
         prompt = item.get("prompt")
         response = item.get("response")
-        try:
-            if isinstance(response, str) and len(response) > 1000:
-                response = response[:1000]
-        except Exception:
-            response = item.get("response")
         safe_history.append({"prompt": prompt, "response": response})
     return safe_history
 
@@ -573,7 +568,7 @@ async def retask(payload: Retask) -> dict:
         if p:
             base_goal = str(p)
             break
-    llm_goal = base_goal[:100]
+    llm_goal = base_goal
 
     llm_payload = {
         "goal": llm_goal,
@@ -1059,7 +1054,8 @@ def report(payload: Report) -> dict:
 def get_prompt(payload: Goal) -> dict:
     token = payload.token
     user_goal = util.replace_special_characters(payload.goal)
-    llm_goal = (user_goal or "")[:500]
+    #llm_goal = (user_goal or "")[:500]
+    llm_goal = user_goal
 
     # 1. Verify Session
     valid_token, user_id = session.verify_session(token)
@@ -1312,7 +1308,8 @@ async def replan(payload: Replan) -> dict:
     ok, user_id = session.verify_session(payload.token)
     if not ok or not user_id:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
-    llm_goal = (new_goal or "")[:500]
+    #llm_goal = (new_goal or "")[:500]
+    llm_goal = new_goal
 
     # 1. Retrieve the plan from the DB
     plan = db.find_one(
@@ -1349,7 +1346,7 @@ async def replan(payload: Replan) -> dict:
     combined_goal = base_goal
     if new_goal:
         combined_goal = f"{base_goal} Replan request: {new_goal}".strip()
-    combined_goal = combined_goal[:500]
+    #combined_goal = combined_goal[:500]
 
     # 3. Communication with the LLM server
     llm_payload = {
