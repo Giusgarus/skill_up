@@ -182,7 +182,7 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # 1. Data extraction
     goal = str(payload.get("goal")).strip() if payload.get("goal") else ""
-    goal = goal[:200]  # align with LLM contract
+    #goal = goal[:200]  # align with LLM contract
     level = str(payload.get("level", "beginner")).lower()
     previous_task = payload.get("previous_task") or {}
     llm_response = payload.get("llm_response") or ""
@@ -199,8 +199,8 @@ def get_llm_retask_response(payload: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:  # pragma: no cover - defensive path
             llm_response = str(llm_response)
     # Trim llm_response to stay within the LLM service request limits (Pydantic max_length=2500)
-    if isinstance(llm_response, str) and len(llm_response) > 2400:
-        llm_response = llm_response[:2400]
+    #if isinstance(llm_response, str) and len(llm_response) > 2400:
+    #    llm_response = llm_response[:2400]
 
     # 2. Prepare Body --> ensure we don't convert None to "None" string.
     body = {
