@@ -1303,6 +1303,7 @@ async def replan(payload: Replan) -> dict:
             "n_tasks_done": True,
             "completed_at": True,
             "difficulty": True,
+            "plan_name": True,
         },
     )
     if not plan_id or plan is None:
@@ -1316,7 +1317,7 @@ async def replan(payload: Replan) -> dict:
         for p, r in zip(prompts, responses)
         if p is not None or r is not None
     ]
-    history = _trim_history(history_raw)
+    history = _trim_history(history_raw, max_items = 1)
 
     # build a richer goal to give context to the LLM (previous goal + replan note)
     base_goal = ""
@@ -1331,7 +1332,7 @@ async def replan(payload: Replan) -> dict:
     llm_payload = {
         "goal": combined_goal or llm_goal,
         "level": _difficulty_level_from_value(plan.get("difficulty")),
-        "history": None,
+        "history": history,
         "user_info": dh.get_user_info(user_id),
     }
     llm_resp = llm.get_llm_response(llm_payload)
@@ -1351,6 +1352,13 @@ async def replan(payload: Replan) -> dict:
         )
     fallback_error = _extract_error_message(result_payload)
     normalized_tasks = _normalize_tasks_or_throw(tasks_payload, fallback_error)
+    difficulty_values: List[int] = [
+        CHALLENGES_DIFFICULTY_MAP.get(str(task["difficulty"]).lower(), 1)
+        for _, task in normalized_tasks
+    ]
+    plan_difficulty = round(mean(difficulty_values)) if difficulty_values else plan.get("difficulty", 1)
+    expected_complete = timing.get_last_date([date for date, _ in normalized_tasks])
+    plan_name = (normalized_tasks[0][1].get("title") if normalized_tasks else None) or plan.get("plan_name")
 
     # 4. Mark existing tasks as deleted
     db.update_many_filtered(
@@ -1383,18 +1391,23 @@ async def replan(payload: Replan) -> dict:
     db.insert_many("tasks", tasks)
 
     # 7. Update the plan
+    set_fields: Dict[str, Any] = {
+        # replan defines a NEW current set of tasks
+        "n_tasks": len(normalized_tasks),
+        "n_tasks_done": 0,
+        "completed_at": None,
+        "next_task_id": start_task_id + len(normalized_tasks),
+        "difficulty": plan_difficulty,
+        "expected_complete": expected_complete,
+    }
+    if plan_name:
+        set_fields["plan_name"] = plan_name
     db.find_one_and_update(
         table_name="plans",
         keys_dict={"user_id": user_id, "plan_id": plan_id},
         values_dict={
             "$inc": {"n_replans": 1},
-            "$set": {
-                # replan defines a NEW current set of tasks
-                "n_tasks": len(normalized_tasks),
-                "n_tasks_done": 0,
-                "completed_at": None,
-                "next_task_id": start_task_id + len(normalized_tasks),
-            },
+            "$set": set_fields,
             "$push": {
                 "prompts": prompt_text,
                 "responses": response_payload,
@@ -1410,5 +1423,5 @@ async def replan(payload: Replan) -> dict:
         "plan_id": plan_id,
         "tasks": safe_tasks,
         "data": llm_resp["result"],
-        "prompt": llm_resp["result"].get("prompt"),
+        "prompt": prompt_text,
     }

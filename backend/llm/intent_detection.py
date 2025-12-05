@@ -19,6 +19,27 @@ MODEL = "meituan/longcat-flash-chat:free"
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"  # OpenAI-compatible endpoint
 
 ALLOWED_INTENTS = ["health","mindfulness", "productivity", "career", "learning", "financial", "creativity", "sociality", "home", "digital_detox"]     
+
+HEALTH_KEYWORDS = [
+    "exercise","workout","run","gym","sleep","sleeping","diet","calorie","health","fit","fitness",
+    "muscle","muscles","bulk","bulking","strength","strong","lift","weights","weight","physique","bodybuild","bodybuilding",
+]
+
+INTENT_KEYWORDS = {
+    "health": HEALTH_KEYWORDS,
+    "mindfulness": ["meditat","mindful","breathe","breath","anxiety","mindfulness","calm","ground"],
+    "productivity": ["productiv","focus","pomodoro","task","todo","plan","workflow","work better"],
+    "career": ["resume","cv","career","interview","job","promotion","networking","linkedin"],
+    "learning": ["learn","study","course","practice","tutorial","lesson","homework","study plan"],
+    "financial": ["money","budget","save","saving","invest","investment","debt","loan","finance"],
+    "creativity": [
+        "write","draw","paint","compose","idea","sketch","creativ","story","poem",
+        "sing","song","music","musical","melody","lyrics","vocal","voice","choir","guitar","piano",
+    ],
+    "sociality": ["friend","social","party","date","meet","network","introduce","small talk"],
+    "home": ["clean","declutter","organize","repair","apartment","home","house","garden", "cook", "chore"],
+    "digital_detox": ["phone","social media","screen time","unplug","disconnect","digital detox"]
+}
         
 # Tunables
 MAX_RETRIES = 4
@@ -26,28 +47,31 @@ BASE_BACKOFF = 1.0
 TIMEOUT = 30
 FALLBACK_TO_LOCAL = True  # use local rule-based detector when remote fails
 
+
+def _strip_replan_noise(text: str) -> str:
+    """Remove the marker words 'replan request' but keep the surrounding goal text."""
+    if not isinstance(text, str):
+        return ""
+    cleaned = re.sub(r"\breplan\s+request\b", " ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
 # --- Local rule-based fallback (simple, quick) ---
-def _local_rule_based_detector(text: str) -> str:
-    t = (text or "").lower()
-    keywords = {
-        "health": ["exercise","workout","run","gym","sleep","sleeping","diet","calorie","health","fit","fitness"],
-        "mindfulness": ["meditat","mindful","breathe","breath","anxiety","mindfulness","calm","ground"],
-        "productivity": ["productiv","focus","pomodoro","task","todo","plan","workflow","work better"],
-        "career": ["resume","cv","career","interview","job","promotion","networking","linkedin"],
-        "learning": ["learn","study","course","practice","tutorial","lesson","homework","study plan"],
-        "financial": ["money","budget","save","saving","invest","investment","debt","loan","finance"],
-        "creativity": ["write","draw","paint","compose","idea","sketch","creativ","story","poem"],
-        "sociality": ["friend","social","party","date","meet","network","introduce","small talk"],
-        "home": ["clean","declutter","organize","repair","apartment","home","house","garden", "cook", "chore"],
-        "digital_detox": ["phone","social media","screen time","unplug","disconnect","digital detox"]
-    }
-    scores = {k: 0 for k in keywords}
-    for intent, kws in keywords.items():
+def _best_intent_by_keywords(text: str) -> tuple[str, int]:
+    """Return best intent guess and score using keyword heuristics."""
+    t = _strip_replan_noise(text).lower()
+    scores = {k: 0 for k in INTENT_KEYWORDS}
+    for intent, kws in INTENT_KEYWORDS.items():
         for kw in kws:
             if kw in t:
                 scores[intent] += 1
     best, best_score = max(scores.items(), key=lambda kv: kv[1])
-    return best if best_score > 0 else "other"
+    return (best if best_score > 0 else "other", best_score)
+
+
+def _local_rule_based_detector(text: str) -> str:
+    best, score = _best_intent_by_keywords(text)
+    return best if score > 0 else "other"
 
 # --- Utility: try to parse JSON from model "content" robustly ---
 def _extract_json_from_text(s: str):
@@ -194,16 +218,21 @@ def detect_intent(goal: str) -> str:
     """
     if not isinstance(goal, str) or goal.strip() == "":
         return "other"
+    goal_for_detection = _strip_replan_noise(goal)
 
     # 1) Try remote
-    remote = _call_remote_intent_detector(goal)
+    remote = _call_remote_intent_detector(goal_for_detection)
     if remote:
+        local_guess, local_score = _best_intent_by_keywords(goal_for_detection)
+        if remote != local_guess and local_score > 0:
+            logger.info("Remote intent %s overridden to %s based on strong keyword signals", remote, local_guess)
+            return local_guess
         logger.info("Remote detected intent: %s", remote)
         return remote
 
     # 2) Fallback to local rule-based detector
     if FALLBACK_TO_LOCAL:
-        local = _local_rule_based_detector(goal)
+        local = _local_rule_based_detector(goal_for_detection)
         logger.info("Local fallback detected intent: %s", local)
         return local
 

@@ -254,12 +254,29 @@ def _extract_json_text(response, context: str) -> str:
 
 def _repair_json_string(json_text: str) -> str:
     """
-    Lightweight repair for truncated or slightly malformed JSON strings.
-    - balances quotes
-    - trims trailing garbage after last closing brace/bracket
-    - balances braces/brackets
+    Repair common JSON formatting errors while preserving content.
+    - strip code fences
+    - close objects before a new one starts in arrays
+    - remove trailing commas
+    - trim trailing garbage after the last closing brace/bracket
+    - balance quotes/braces/brackets
     """
     repaired = json_text.strip()
+
+    # strip code fences if present
+    if repaired.startswith("```"):
+        parts = repaired.split("```")
+        if len(parts) >= 2:
+            repaired = parts[1]
+            if repaired.startswith("json"):
+                repaired = repaired[4:]
+            repaired = repaired.strip()
+
+    # Fix patterns like `"difficulty": "Easy"\n ,{` by closing the object
+    repaired = re.sub(r'([^\}\]\s])\s*,\s*{', r'\1},{', repaired)
+
+    # Remove trailing commas before closing braces/brackets
+    repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
 
     # If there is trailing garbage after a closing brace/bracket, trim it
     last_closer = max(repaired.rfind("}"), repaired.rfind("]"))
@@ -491,7 +508,7 @@ def validate_ai_response(response_data: dict):
         return False, "Response too lengthy"
 
     # 3. Safety / XSS Check
-    dangerous_patterns = [r"<script", r"javascript:", r"onerror=", r"onclick=", r"eval\(", r"<iframe", r"prompt"]
+    dangerous_patterns = [r"<script", r"javascript:", r"onerror=", r"onclick=", r"eval\(", r"<iframe"]
     for pattern in dangerous_patterns:
         if re.search(pattern, full_answer_txt, re.IGNORECASE):
             return False, "Response contains potentially harmful content"
@@ -561,10 +578,12 @@ def _fallback_replan_task(previous_task: str, modification_reason: str) -> dict:
 
 
 def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modificaiton_reason: Optional[str] = ""):
+    repaired_llm_response = _repair_json_string(llm_response)
     try:
-        existing_data = json.loads(llm_response)
+        json.loads(repaired_llm_response)
     except json.JSONDecodeError:
-        raise ValueError("Failed to parse existing LLM response")
+        logger.warning("Failed to parse existing LLM response after repair; continuing without it.")
+    llm_response = repaired_llm_response
     sanitized_goal, _,_,error= validate_and_sanitize_input(goal)
     system_instruction = """You are 'SkillUp Coach,' an expert AI gamification engine designed to turn personal habits and corporate skills into an RPG-style adventure.
 
@@ -675,15 +694,14 @@ def replan_task(goal:str, level:str, previous_task:str, llm_response:str, modifi
 
         logger.info("Challenge generated and validated successfully")
         return challenge_data
-    
-    
+
+
     except json.JSONDecodeError as e:
         logger.error("JSON parsing error: %s", e)
         logger.error("Response text: %s", response.text if response else "None")
         logger.error("Response meta: %s", _response_meta_for_logging(response))
         raise ValueError("Failed to parse AI response")
     except ValueError as e:
-        # Surface the problem so we can inspect logs and tune prompts/safety
         logger.warning("LLM replan_task returned no usable content: %s | meta=%s", e, _response_meta_for_logging(response))
         raise
     except Exception as e:

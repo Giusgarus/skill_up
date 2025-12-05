@@ -228,6 +228,8 @@ class TaskApi {
       Uri.parse(baseUrl).resolve('/services/challenges/plan/active');
   Uri get _createPlanUri =>
       Uri.parse(baseUrl).resolve('/services/challenges/prompt');
+  Uri get _replanPlanUri =>
+      Uri.parse(baseUrl).resolve('/services/challenges/prompt/replan');
   Uri get _deletePlanUri =>
       Uri.parse(baseUrl).resolve('/services/challenges/plan/delete');
   Uri _hardPlanUri(String preset) =>
@@ -394,6 +396,87 @@ class TaskApi {
     } catch (error, stackTrace) {
       return PlanResult.error(
         'Unexpected error while creating the plan.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<PlanResult> replanPlan({
+    required String token,
+    required int planId,
+    required String newGoal,
+  }) async {
+    final payload = jsonEncode({
+      'token': token,
+      'plan_id': planId,
+      'new_goal': newGoal,
+    });
+    try {
+      final response = await _client.post(
+        _replanPlanUri,
+        headers: const {'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final body = _decodeBody(response.body);
+        final status = body['status'];
+        if (status is bool && status == false) {
+          final msg = body['detail'] ??
+              body['error'] ??
+              body['message'] ??
+              body['error_message'];
+          return PlanResult.error(
+            (msg is String ? msg : null) ?? 'Plan replan was rejected.',
+            statusCode: response.statusCode,
+          );
+        }
+        final newPlanId = _toInt(body['plan_id']) ?? planId;
+        final tasks = _parseTasks(body['tasks'], planId: newPlanId);
+        final responsePayload = body['data'] ?? body['response'];
+        if (tasks.isEmpty) {
+          // recover from DB in case backend stored the plan but response is partial
+          final recovered = await fetchActivePlan(token: token);
+          if (recovered.isSuccess) {
+            return recovered;
+          }
+          final message = body['error_message'] ??
+              recovered.errorMessage ??
+              'No tasks returned for this plan.';
+          return PlanResult.error(
+            message,
+            statusCode: recovered.statusCode ?? response.statusCode,
+          );
+        }
+        return PlanResult.success(
+          planId: newPlanId,
+          tasks: tasks,
+          expectedCompletion: _maxDeadline(tasks),
+          createdAt: _parseDate(body['created_at']) ?? DateTime.now(),
+          prompt: body['prompt'] as String?,
+          response: responsePayload,
+          statusCode: response.statusCode,
+        );
+      }
+      String? message;
+      if (response.body.isNotEmpty) {
+        final body = _decodeBody(response.body);
+        message = body['detail'] as String? ??
+            body['error'] as String? ??
+            body['message'] as String? ??
+            body['error_message'] as String?;
+      }
+      return PlanResult.error(
+        message ?? 'Failed to replan (${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
+    } on SocketException catch (_) {
+      return const PlanResult.error('No internet connection.');
+    } on HttpException catch (_) {
+      return const PlanResult.error('Unable to reach the server.');
+    } catch (error, stackTrace) {
+      return PlanResult.error(
+        'Unexpected error while replanning the plan.',
         error: error,
         stackTrace: stackTrace,
       );

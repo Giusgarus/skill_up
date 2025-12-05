@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
@@ -40,17 +42,25 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
   bool _processing = false;
   String? _error;
 
-  late final Map<DateTime, List<RemoteTask>> _tasksByDay;
-  late final List<DateTime> _sortedDays;
+  late Map<DateTime, List<RemoteTask>> _tasksByDay;
+  late List<DateTime> _sortedDays;
+  late List<RemoteTask> _currentTasks;
+  late int _planId;
+  String? _currentPrompt;
 
   bool _isPlanReplanOpen = false;
   String _planReplanText = '';
   bool _isReplanningPlan = false;
+  bool _showReplanError = false;
+  String? _replanErrorMessage;
 
   @override
   void initState() {
     super.initState();
-    _tasksByDay = _groupTasks(widget.args.tasks);
+    _planId = widget.args.planId;
+    _currentTasks = widget.args.tasks;
+    _currentPrompt = widget.args.prompt;
+    _tasksByDay = _groupTasks(_currentTasks);
     _sortedDays = _tasksByDay.keys.toList()..sort();
   }
 
@@ -72,6 +82,22 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
     return grouped;
   }
 
+  void _updatePlanData({
+    required List<RemoteTask> tasks,
+    String? prompt,
+    int? planId,
+  }) {
+    _currentTasks = tasks;
+    _tasksByDay = _groupTasks(tasks);
+    _sortedDays = _tasksByDay.keys.toList()..sort();
+    if (prompt != null && prompt.isNotEmpty) {
+      _currentPrompt = prompt;
+    }
+    if (planId != null) {
+      _planId = planId;
+    }
+  }
+
   Future<void> _handleAccept() async {
     if (!mounted) return;
     Navigator.of(context).pop<PlanDecision>(PlanDecision.accepted);
@@ -85,7 +111,7 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
     });
     final ok = await _taskApi.deletePlan(
       token: widget.args.token,
-      planId: widget.args.planId,
+      planId: _planId,
     );
     if (!mounted) return;
     setState(() => _processing = false);
@@ -121,31 +147,87 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
       return;
     }
 
-    // MOCK: niente API, solo loading + snackbar
     setState(() {
       _isReplanningPlan = true;
+      _error = null;
+      _showReplanError = false;
+      _replanErrorMessage = null;
     });
 
-    Future.delayed(const Duration(seconds: 1), () {
+    unawaited(_replanPlan(trimmed));
+  }
+
+  Future<void> _replanPlan(String newGoal) async {
+    try {
+      final result = await _taskApi.replanPlan(
+        token: widget.args.token,
+        planId: _planId,
+        newGoal: newGoal,
+      );
       if (!mounted) return;
       setState(() {
         _isReplanningPlan = false;
+        if (result.isSuccess && result.planId != null) {
+          _error = null;
+          _updatePlanData(
+            tasks: result.tasks,
+            prompt: result.prompt,
+            planId: result.planId,
+          );
+          _showReplanError = false;
+          _replanErrorMessage = null;
+        } else {
+          final message = result.errorMessage ?? 'Unable to replan this plan.';
+          _error = message;
+          _showReplanError = true;
+          _replanErrorMessage = message;
+        }
+      });
+      if (!mounted) return;
+      if (result.isSuccess && result.planId != null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Plan updated 🎯'),
+              duration: Duration(milliseconds: 1500),
+            ),
+          );
+      } else {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                result.errorMessage ?? 'Unable to replan this plan.',
+              ),
+              duration: const Duration(milliseconds: 1800),
+            ),
+          );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isReplanningPlan = false;
+        _error = 'Unable to replan this plan. Please retry.';
+        _showReplanError = true;
+        _replanErrorMessage = _error;
       });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
           const SnackBar(
-            content: Text('Plan replan request sent (mock).'),
-            duration: Duration(milliseconds: 1500),
+            content: Text('Unable to replan this plan. Please retry.'),
+            duration: Duration(milliseconds: 1800),
           ),
         );
-    });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final dateFmt = DateFormat('EEE, dd MMM');
-    final tasksCount = widget.args.tasks.length;
+    final tasksCount = _currentTasks.length;
     final start = _sortedDays.isNotEmpty ? _sortedDays.first : null;
     final end = _sortedDays.isNotEmpty ? _sortedDays.last : null;
 
@@ -178,12 +260,12 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
               child: Column(
                 children: [
                   _OverviewHeaderSection(
-                    planId: widget.args.planId,
+                    planId: _planId,
                     activeWeekdays: activeWeekdays,
                     totalWeeks: totalWeeks,
                     totalTasks: tasksCount,
                     timeSpan: span,
-                    prompt: widget.args.prompt,
+                    prompt: _currentPrompt,
                     onBack: widget.args.deleteOnly
                     // 👇 se arrivo dal profilo: solo pop, NON eliminare
                         ? () {
@@ -247,7 +329,7 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
               left: 0,
               right: 0,
               child: _ActionButtons(
-                loading: _processing,
+                loading: _processing || _isReplanningPlan,
                 onAccept: widget.args.deleteOnly ? null : _handleAccept,
                 onDecline: _handleDecline,        // usato solo per REMOVE
                 onReplan: _openPlanReplan,        // 👈 NUOVO: apre popup
@@ -258,7 +340,7 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
             // 👇 OVERLAY REPLAN PIANO
             if (_isPlanReplanOpen)
               _PlanReplanOverlay(
-                planTitle: widget.args.prompt ?? 'Your plan',
+                planTitle: _currentPrompt ?? 'Your plan',
                 initialText: _planReplanText,
                 onChanged: (value) {
                   setState(() => _planReplanText = value);
@@ -270,6 +352,18 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
             // 👇 OVERLAY LOADING (mock replan)
             if (_isReplanningPlan)
               const _PlanReplanLoadingOverlay(),
+
+            if (_showReplanError)
+              _ReplanErrorBanner(
+                message: _replanErrorMessage ??
+                    'Unable to replan this plan. Please retry.',
+                onClose: () {
+                  setState(() {
+                    _showReplanError = false;
+                    _replanErrorMessage = null;
+                  });
+                },
+              ),
           ],
         ),
       ),
@@ -1035,6 +1129,95 @@ class _PlanReplanLoadingOverlay extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplanErrorBanner extends StatelessWidget {
+  const _ReplanErrorBanner({
+    required this.message,
+    required this.onClose,
+  });
+
+  final String message;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onClose,
+        child: Container(
+          color: Colors.black.withOpacity(0.5),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Material(
+                borderRadius: BorderRadius.circular(22),
+                color: Colors.white,
+                elevation: 10,
+                shadowColor: Colors.black.withOpacity(0.2),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: Color(0xFFD7263D), size: 28),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Request blocked',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        message,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.black87,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: onClose,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'OK',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
