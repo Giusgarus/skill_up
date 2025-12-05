@@ -1265,7 +1265,10 @@ class _HomePageState extends State<HomePage> {
                     onProfileTap: () {
                       Navigator.of(context)
                           .pushNamed(UserInfoPage.route)
-                          .then((_) => _loadProfileImage());
+                          .then((_) async {
+                        await _loadProfileImage();
+                        await _loadActivePlan(); // refresh tasks in case a plan was removed
+                      });
                     },
                     onSettingsTap: () {
                       Navigator.of(context).pushNamed(SettingsPage.route);
