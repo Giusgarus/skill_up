@@ -873,22 +873,29 @@ class _PlanCard extends StatelessWidget {
       onTap: sessionToken == null
           ? null
           : () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: PlanOverviewPage.route),
-                  builder: (_) => PlanOverviewPage(
-                    args: PlanOverviewArgs(
-                      planId: plan.planId,
-                      token: sessionToken!,
-                      tasks: plan.tasks,
-                      prompt: plan.prompt,
-                      deleteOnly: true,
-                    ),
-                  ),
-                ),
-              );
-              onRemove();
-            },
+        final displayTitle = (plan.planName?.trim().isNotEmpty ?? false)
+            ? plan.planName!.trim()
+            : (plan.prompt?.trim().isNotEmpty ?? false)
+            ? plan.prompt!.trim()
+            : 'Plan #${plan.planId}';
+
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: PlanOverviewPage.route),
+            builder: (_) => PlanOverviewPage(
+              args: PlanOverviewArgs(
+                planId: plan.planId,
+                token: sessionToken!,
+                tasks: plan.tasks,
+                // 👇 qui usiamo il fallback “furbo”
+                prompt: displayTitle,
+                deleteOnly: true,
+              ),
+            ),
+          ),
+        );
+        onRemove();
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
         padding: const EdgeInsets.all(14),

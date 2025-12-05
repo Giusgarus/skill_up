@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:skill_up/features/home/data/task_api.dart';
 import 'package:skill_up/features/home/domain/medal_utils.dart';
+import 'package:flutter/services.dart';
+import 'package:skill_up/shared/widgets/gradient_icon_button.dart';
 
 class PlanOverviewArgs {
   const PlanOverviewArgs({
@@ -95,79 +97,113 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
     final tasksCount = widget.args.tasks.length;
     final start = _sortedDays.isNotEmpty ? _sortedDays.first : null;
     final end = _sortedDays.isNotEmpty ? _sortedDays.last : null;
+
     final span = start != null && end != null
         ? '${dateFmt.format(start)} → ${dateFmt.format(end)}'
         : 'Upcoming days';
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: Colors.transparent, // Set to transparent to show the gradient
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: _BackPill(onTap: () => Navigator.of(context).maybePop()),
+    final activeWeekdays = _tasksByDay.keys.map((d) => d.weekday).toSet();
+
+    int? totalWeeks;
+    if (start != null && end != null) {
+      final days = end.difference(start).inDays + 1;
+      totalWeeks = ((days + 6) ~/ 7);
+    }
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
       ),
-      body: Stack(
-        children: [
-          const _GradientBackground(), // Custom gradient background
-          SafeArea(
-            child: Column(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _Header(planId: widget.args.planId),
-                        const SizedBox(height: 28),
-                        _SummaryCard(
-                          totalTasks: tasksCount,
-                          timeSpan: span,
-                          prompt: widget.args.prompt,
-                        ),
-                        const SizedBox(height: 18),
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 24.0),
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: _TaskTimeline(tasksByDay: _tasksByDay),
-                        ),
-                        if (_error != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8.0),
-                            child: Text(
-                              _error!,
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: Colors.redAccent,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
+          children: [
+            const _GradientBackground(),
+
+            // 👇 CONTENUTO SCORREVOLE
+            SafeArea(
+              child: Column(
+                children: [
+                  _OverviewHeaderSection(
+                    planId: widget.args.planId,
+                    activeWeekdays: activeWeekdays,
+                    totalWeeks: totalWeeks,
+                    totalTasks: tasksCount,
+                    timeSpan: span,
+                    prompt: widget.args.prompt,
+                    onBack: widget.args.deleteOnly
+                    // 👇 se arrivo dal profilo: solo pop, NON eliminare
+                        ? () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                    }
+                    // 👇 se arrivo dal flow di generazione: comportati come DECLINE
+                        : _handleDecline,
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 18,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 24.0),
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
+                            child: _TaskTimeline(tasksByDay: _tasksByDay),
                           ),
-                      ],
+                          if (_error != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Text(
+                                _error!,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                  color: Colors.redAccent,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                _ActionButtons(
-                  loading: _processing,
-                  onAccept: widget.args.deleteOnly ? null : _handleAccept,
-                  onDecline: _handleDecline,
-                  deleteOnly: widget.args.deleteOnly,
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+
+            // 👇 PULSANTI FISSI, IN BASSO, SOPRA IL CONTENUTO
+            Positioned(
+              bottom: 65,   // ⬆️ - prima era 24, ora li alziamo
+              left: 0,
+              right: 0,
+              child: _ActionButtons(
+                loading: _processing,
+                onAccept: widget.args.deleteOnly ? null : _handleAccept,
+                onDecline: _handleDecline,
+                deleteOnly: widget.args.deleteOnly,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -185,9 +221,10 @@ class _GradientBackground extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Color(0xFFFFB3A7), // Top Pink
-              Color(0xFFFFE0D9), // Middle Lighter
-              Color(0xFFFFCF71), // Bottom Orange
+              Color(0xFFFFB3A7), // rosa
+              Color(0xFFFFD5C2), // pesca chiaro (smooth)
+              Color(0xFFFFECCA), // crema (transizione dolce)
+              Color(0xFFFFCF71), // giallo originale
             ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -210,7 +247,7 @@ class _BackPill extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 100,
+          width: 70,
           height: 56,
           decoration: const BoxDecoration(
             color: Color(0xFFB3B3B3),
@@ -239,107 +276,7 @@ class _BackPill extends StatelessWidget {
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.planId});
 
-  final int planId;
-
-  @override
-  Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-      color: Colors.white,
-      letterSpacing: 1.2,
-    );
-    return Center(
-      child: Column(
-        children: [
-          Text(
-            'OVERVIEW OF YOUR PLAN',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontFamily: 'FredokaOne',
-              fontSize: 44,
-              fontWeight: FontWeight.w900,
-              fontStyle: FontStyle.italic, // se vuoi la leggera inclinazione
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Plan #$planId',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.totalTasks,
-    required this.timeSpan,
-    this.prompt,
-  });
-
-  final int totalTasks;
-  final String timeSpan;
-  final String? prompt;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$totalTasks tasks scheduled',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            timeSpan,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withOpacity(0.9),
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          if (prompt != null && prompt!.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Goal',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              prompt!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white,
-                  ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 class _TaskTimeline extends StatelessWidget {
   const _TaskTimeline({required this.tasksByDay});
@@ -478,89 +415,319 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+    return Positioned(
+      bottom: 24,
+      left: 0,
+      right: 0,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: deleteOnly
             ? [
-                _ActionButton(
-                  label: 'REMOVE',
-                  gradientColors: const [Color(0xFFFC5B6B), Color(0xFFF89052)],
-                  onPressed: loading ? null : onDecline,
-                ),
-              ]
+          GradientTextButton(
+            label: 'REMOVE',
+            onTap: loading ? () {} : onDecline,
+            width: 190,
+            height: 64,
+          ),
+        ]
             : [
-                _ActionButton(
-                  label: 'DECLINE',
-                  gradientColors: const [Color(0xFFFC5B6B), Color(0xFFF89052)],
-                  onPressed: loading ? null : onDecline,
-                ),
-                _ActionButton(
-                  label: 'ACCEPT',
-                  gradientColors: const [Color(0xFF75E966), Color(0xFFC7EF75)],
-                  onPressed: loading ? null : onAccept,
-                ),
-              ],
+          GradientTextButton(
+            label: 'REPLAN',
+            onTap: loading ? () {} : onDecline,
+            width: 190,
+            height: 64,
+          ),
+          const SizedBox(width: 20),
+          GradientTextButton(
+            label: 'ACCEPT',
+            onTap: loading ? () {} : (onAccept ?? () {}),
+            width: 190,
+            height: 64,
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({
+class GradientTextButton extends StatelessWidget {
+  const GradientTextButton({
+    super.key,
+    required this.onTap,
     required this.label,
-    required this.gradientColors,
-    required this.onPressed,
+    this.width = 140,
+    this.height = 56,
   });
 
+  final VoidCallback onTap;
   final String label;
-  final List<Color> gradientColors;
-  final VoidCallback? onPressed;
+  final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-        child: ElevatedButton(
-          onPressed: onPressed,
-          style: ElevatedButton.styleFrom(
-            padding: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30),
-            ),
-            elevation: 8,
-            shadowColor: Colors.black.withOpacity(0.3),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: gradientColors,
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-              borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 10,
+              offset: Offset(0, 6),
             ),
-            child: Container(
-              alignment: Alignment.center,
-              constraints: const BoxConstraints(minHeight: 50.0),
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.0,
-                ),
-              ),
-            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            letterSpacing: 1.1,
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _WeekdayRow extends StatelessWidget {
+  const _WeekdayRow();
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center, // CENTRATO
+      children: labels
+          .map(
+            (l) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            l,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      )
+          .toList(),
+    );
+  }
+}
+
+class _WeekdayDots extends StatelessWidget {
+  const _WeekdayDots({required this.activeWeekdays});
+
+  final Set<int> activeWeekdays;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center, // CENTRA TUTTA LA ROW
+      children: List.generate(7, (index) {
+        final weekday = index + 1;
+        final isActive = activeWeekdays.contains(weekday);
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6), // SPAZIO COSTANTE
+          child: _DayCircle(active: isActive),
+        );
+      }),
+    );
+  }
+}
+
+class _DayCircle extends StatelessWidget {
+  const _DayCircle({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: active ? const Color(0xFF72E07B) : Colors.white,
+        border: Border.all(
+          color: Colors.black,
+          width: 2,
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewHeaderSection extends StatelessWidget {
+  const _OverviewHeaderSection({
+    required this.planId,
+    required this.activeWeekdays,
+    required this.totalWeeks,
+    required this.totalTasks,
+    required this.timeSpan,
+    required this.onBack,
+    this.prompt,
+  });
+
+  final int planId;
+  final Set<int> activeWeekdays;
+  final int? totalWeeks;
+  final int totalTasks;
+  final String timeSpan;
+  final String? prompt;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final weeksLabel = totalWeeks == null
+        ? 'Total duration: —'
+        : 'Total duration: $totalWeeks ${totalWeeks == 1 ? 'week' : 'weeks'}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(0, 24, 24, 26),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFFFFD5C2), // pesca morbido
+            Color(0xFFFFB3A7), // rosa in alto
+          ],
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+        ),
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(40),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // FRECCIA + TITOLO
+          Padding(
+            padding: const EdgeInsets.only(left: 0, right: 0, bottom: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _BackPill(onTap: onBack),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'PLAN OVERVIEW',
+                    maxLines: 1,
+                    textAlign: TextAlign.left,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'FredokaOne',
+                      fontSize: 35,
+                      fontWeight: FontWeight.w900,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // GIORNI + PALLINI (allineati uno sopra l'altro)
+          _WeekdayStrip(activeWeekdays: activeWeekdays),
+          const SizedBox(height: 12), // spazio prima di "Total duration"
+
+          // DURATA
+          Text(
+            weeksLabel,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: Colors.black,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          Text(
+            timeSpan,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.black87,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // GOAL
+          Text(
+            'Goal',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: Colors.black,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            (prompt != null && prompt!.trim().isNotEmpty) ? prompt! : '—',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Giorno + pallino nello stesso blocco, centrati
+class _WeekdayStrip extends StatelessWidget {
+  const _WeekdayStrip({required this.activeWeekdays});
+
+  final Set<int> activeWeekdays; // 1 = Monday ... 7 = Sunday
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(7, (index) {
+        final weekday = index + 1;
+        final isActive = activeWeekdays.contains(weekday);
+        final label = labels[index];
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              _DayCircle(active: isActive),
+            ],
+          ),
+        );
+      }),
     );
   }
 }
