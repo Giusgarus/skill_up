@@ -991,7 +991,7 @@ class _InterestsBottomSheetState extends State<_InterestsBottomSheet> {
           child: SizedBox(
             height: 56,
             child: DropdownButtonFormField<String>(
-              value: value,
+              initialValue: value,
               isExpanded: true,
               alignment: Alignment.center,
               decoration: _basicPillDecoration(),

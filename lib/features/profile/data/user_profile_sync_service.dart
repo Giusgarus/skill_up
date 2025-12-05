@@ -137,16 +137,14 @@ class UserProfileSyncService {
     }
     final fieldSource = data['fields'] is Map ? data['fields'] as Map : data;
     final normalizedFields = <String, dynamic>{};
-    if (fieldSource is Map) {
-      fieldSource.forEach((key, value) {
-        final attrKey = key.toString();
-        final fieldId = frontendFieldForAttribute(attrKey);
-        if (fieldId != null) {
-          normalizedFields[fieldId] = value;
-        }
-      });
-    }
-    final fieldsToPersist = <String, String>{};
+    fieldSource.forEach((key, value) {
+      final attrKey = key.toString();
+      final fieldId = frontendFieldForAttribute(attrKey);
+      if (fieldId != null) {
+        normalizedFields[fieldId] = value;
+      }
+    });
+      final fieldsToPersist = <String, String>{};
 
     for (final field in kUserProfileFields) {
       final value = normalizedFields[field.id];

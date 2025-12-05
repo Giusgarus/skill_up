@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:skill_up/features/auth/data/services/auth_api.dart';
 import 'package:skill_up/features/auth/data/storage/auth_session_storage.dart';
 import 'package:skill_up/features/auth/presentation/pages/login_page.dart';

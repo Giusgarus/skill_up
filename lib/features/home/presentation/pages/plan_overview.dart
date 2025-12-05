@@ -670,54 +670,7 @@ class GradientTextButton extends StatelessWidget {
 }
 
 
-class _WeekdayRow extends StatelessWidget {
-  const _WeekdayRow();
 
-  @override
-  Widget build(BuildContext context) {
-    const labels = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center, // CENTRATO
-      children: labels
-          .map(
-            (l) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Text(
-            l,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      )
-          .toList(),
-    );
-  }
-}
-
-class _WeekdayDots extends StatelessWidget {
-  const _WeekdayDots({required this.activeWeekdays});
-
-  final Set<int> activeWeekdays;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center, // CENTRA TUTTA LA ROW
-      children: List.generate(7, (index) {
-        final weekday = index + 1;
-        final isActive = activeWeekdays.contains(weekday);
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6), // SPAZIO COSTANTE
-          child: _DayCircle(active: isActive),
-        );
-      }),
-    );
-  }
-}
 
 class _DayCircle extends StatelessWidget {
   const _DayCircle({required this.active});

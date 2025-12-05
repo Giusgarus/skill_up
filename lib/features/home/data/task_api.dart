@@ -268,12 +268,12 @@ class TaskApi {
           final createdAt = _parseDate(plan['created_at']);
           if (createdAt != null) {
             latestCreated ??= createdAt;
-            if (createdAt.isAfter(latestCreated!)) latestCreated = createdAt;
+            if (createdAt.isAfter(latestCreated)) latestCreated = createdAt;
           }
           final planExpected = _parseDate(plan['expected_complete']);
           if (planExpected != null) {
             expected ??= planExpected;
-            if (expected!.isBefore(planExpected)) expected = planExpected;
+            if (expected.isBefore(planExpected)) expected = planExpected;
           }
           prompt ??= plan['prompt'] as String?;
           prompt ??= plan['plan_name'] as String?;

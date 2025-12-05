@@ -171,41 +171,6 @@ class _HomePageState extends State<HomePage> {
   }
 
 
-  MedalType _medalForDay(DateTime day) {
-    final normalized = dateOnly(day);
-
-    // 1) Se ho i task in memoria per quel giorno, calcolo la medaglia da lì
-    final tasks = _tasksByDay[normalized];
-    if (tasks != null && tasks.isNotEmpty) {
-      final completed = tasks.where((t) => t.isCompleted).length;
-      return medalForProgress(
-        completed: completed,
-        total: tasks.length,
-      );
-    }
-
-    // 2) Altrimenti, se ho un numero di completati in _completedTasksByDay,
-    // lo uso (fallback)
-    final storedCompleted = _completedTasksByDay[normalized];
-    if (storedCompleted != null) {
-      final total = _totalTasksForDay(normalized);
-      return medalForProgress(
-        completed: storedCompleted,
-        total: total,
-      );
-    }
-
-    // 3) Fallback finale: prova a leggerlo dal MedalHistoryRepository
-    //
-    try {
-      final medal = _medalRepository.medalForDay(normalized);
-      return medal ?? MedalType.none;
-    } catch (_) {
-      // se non hai ancora questo metodo o se qualcosa va storto
-      return MedalType.none;
-    }
-  }
-
   void _changeWeek(int offsetWeeks) {
     setState(() {
       _weekAnchor = _weekAnchor.add(Duration(days: 7 * offsetWeeks));
@@ -696,7 +661,7 @@ class _HomePageState extends State<HomePage> {
 
   int get _currentStreak {
     // helper: normalizza il valore del repo (null -> none)
-    MedalType _medalFor(DateTime day) {
+    MedalType medalFor(DateTime day) {
       return _medalRepository.medalForDay(day) ?? MedalType.none;
     }
 
@@ -704,7 +669,7 @@ class _HomePageState extends State<HomePage> {
 
     // 1) Se oggi non hai una medaglia, la streak è 0
     //    (anche se ieri o giorni fa avevi fatto tutto).
-    if (_medalFor(today) == MedalType.none) {
+    if (medalFor(today) == MedalType.none) {
       return 0;
     }
 
@@ -714,7 +679,7 @@ class _HomePageState extends State<HomePage> {
     // 2) Conta quanti giorni CONSECUTIVI con medaglia ci sono
     //    a partire da oggi andando indietro.
     while (!day.isBefore(_streakLowerBound)) {
-      final medal = _medalFor(day);
+      final medal = medalFor(day);
 
       if (medal == MedalType.none) {
         break; // giorno saltato -> streak si ferma qui
@@ -1067,7 +1032,7 @@ class _HomePageState extends State<HomePage> {
 
     final hasPlan =
         planToShow != null && planToShow.isSuccess && planToShow.planId != null;
-    final hasTasks = hasPlan && planToShow!.tasks.isNotEmpty;
+    final hasTasks = hasPlan && planToShow.tasks.isNotEmpty;
 
     if (hasPlan && hasTasks) {
       _setPlanData(planToShow.tasks, planToShow.planId!);
@@ -1098,7 +1063,7 @@ class _HomePageState extends State<HomePage> {
         unawaited(
           _taskApi.deletePlan(
             token: session.token,
-            planId: planToShow!.planId!,
+            planId: planToShow.planId!,
           ),
         );
       }

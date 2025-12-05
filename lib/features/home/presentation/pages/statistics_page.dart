@@ -59,14 +59,14 @@ class _StatisticsPageState extends State<StatisticsPage> {
     final repo = MedalHistoryRepository.instance;
     DateTime today = dateOnly(DateTime.now());
 
-    MedalType _medalForDay(DateTime day) {
+    MedalType medalForDay(DateTime day) {
       final base = DateTime(day.year, day.month);
       final medals = repo.medalsForMonth(base);
       return medals[day] ?? MedalType.none;
     }
 
     // 1) Controllo se oggi ha una medaglia
-    final hasMedalToday = _medalForDay(today) != MedalType.none;
+    final hasMedalToday = medalForDay(today) != MedalType.none;
 
     // 2) Se oggi NON ha medaglia, partiamo da ieri
     DateTime day = hasMedalToday
@@ -77,7 +77,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
     // 3) Camminiamo all’indietro finché troviamo giorni con medaglia
     while (true) {
-      final medal = _medalForDay(day);
+      final medal = medalForDay(day);
       if (medal == MedalType.none) {
         break;
       }
@@ -372,25 +372,25 @@ class _StatsCard extends StatelessWidget {
                       const SizedBox(height: 6),
 
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           Text('${totals.gold}', style: valueStyle),
-                          const SizedBox(width: 18),
+                          const SizedBox(width: 9),
                           Text('${totals.silver}', style: valueStyle),
-                          const SizedBox(width: 18),
+                          const SizedBox(width: 9),
                           Text('${totals.bronze}', style: valueStyle),
                         ],
                       ),
 
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 1),
 
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           _medalIcon(MedalType.gold),
-                          const SizedBox(width: 18),
+                          const SizedBox(width: 0),
                           _medalIcon(MedalType.silver),
-                          const SizedBox(width: 18),
+                          const SizedBox(width: 0),
                           _medalIcon(MedalType.bronze),
                         ],
                       ),

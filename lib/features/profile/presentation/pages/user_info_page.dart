@@ -1005,15 +1005,15 @@ class _PillInfoField extends StatelessWidget {
     required this.hint,
     required this.controller,
     required this.onChanged,
-    this.keyboardType,
     this.readOnly = false,
+    this.keyboardType = TextInputType.text, // default OK
   });
 
   final String label;
   final String hint;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
-  final TextInputType? keyboardType;
+  final TextInputType keyboardType; // <-- NON nullable
   final bool readOnly;
 
   @override
@@ -1037,16 +1037,16 @@ class _PillInfoField extends StatelessWidget {
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              keyboardType: keyboardType,
+              keyboardType: keyboardType, // funzia
               readOnly: readOnly,
               textAlign: TextAlign.center,
               textAlignVertical: TextAlignVertical.center,
-              style: _pillTextStyle(
-                context,
-              ).copyWith(color: readOnly ? Colors.grey[600] : Colors.black),
-              decoration: _pillDecoration(
-                hint,
-              ).copyWith(fillColor: readOnly ? Colors.grey[200] : Colors.white),
+              style: _pillTextStyle(context).copyWith(
+                color: readOnly ? Colors.grey[600] : Colors.black,
+              ),
+              decoration: _pillDecoration(hint).copyWith(
+                fillColor: readOnly ? Colors.grey[200] : Colors.white,
+              ),
             ),
           ),
         ),
@@ -1101,7 +1101,7 @@ class _LabeledDropdownPill extends StatelessWidget {
           child: SizedBox(
             height: _pillHeight,
             child: DropdownButtonFormField<String>(
-              value: normalizedValue,
+              initialValue: normalizedValue,
               isExpanded: true,
               alignment: Alignment.center,
               icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
@@ -1127,16 +1127,3 @@ class _LabeledDropdownPill extends StatelessWidget {
   }
 }
 
-class _HabitPlanPlaceholderPage extends StatelessWidget {
-  const _HabitPlanPlaceholderPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Habit plan')),
-      body: const Center(
-        child: Text('Here we will show the habit details / plan.'),
-      ),
-    );
-  }
-}
