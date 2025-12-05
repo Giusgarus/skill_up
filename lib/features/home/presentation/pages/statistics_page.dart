@@ -273,17 +273,41 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Style for the main data numbers (e.g., '30', '23', '12', '56')
-    final dataTextStyle = cardTextStyle?.copyWith(fontSize: 28);
-    // Style for the labels (e.g., 'Level:', 'Medals:')
-    final labelTextStyle = cardTextStyle?.copyWith(fontSize: 20, fontStyle: FontStyle.italic);
+    const blockColor = Color(0xFFDCDCDC );
+
+    final labelStyle = const TextStyle(
+      fontFamily: 'FugazOne',
+      fontSize: 30,
+      fontWeight: FontWeight.w900,
+      color: Colors.black,
+      fontStyle: FontStyle.italic,
+      letterSpacing: 1.2,
+    );
+
+    final valueStyle = const TextStyle(
+      fontFamily: 'FredokaOne',
+      fontSize: 28,
+      fontWeight: FontWeight.w900,
+      color: Colors.black,
+      fontStyle: FontStyle.italic,
+      letterSpacing: 1.2,
+    );
+
+    final bigValueStyle = const TextStyle(
+      fontFamily: 'FredokaOne',
+      fontSize: 34,
+      fontWeight: FontWeight.w900,
+      color: Colors.black,
+      fontStyle: FontStyle.italic,
+      letterSpacing: 1.2,
+    );
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(40),
         border: Border.all(
           color: Colors.white.withOpacity(0.85),
           width: 2,
@@ -297,97 +321,101 @@ class _StatsCard extends StatelessWidget {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Row for Level and Medals (Two Columns)
+          // -------------------------------------
+          //        LEVEL + MEDALS (centrati)
+          // -------------------------------------
           Row(
-            // Use CrossAxisAlignment.start for proper alignment if items have different heights
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- LEFT COLUMN: LEVEL ---
               Expanded(
-                // Use a Flex of 3 for Level, giving it more space than Medals if needed
-                flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: TextSpan(
-                        style: labelTextStyle,
-                        children: <TextSpan>[
-                          const TextSpan(text: 'Level:'),
-                          TextSpan(text: '\n${levelInfo.level}', style: dataTextStyle),
-                        ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  decoration: BoxDecoration(
+                    color: blockColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    children: [
+                      Text('Level:', style: labelStyle, textAlign: TextAlign.center),
+                      const SizedBox(height: 6),
+                      Text('${levelInfo.level}', style: bigValueStyle),
+                      const SizedBox(height: 4),
+                      Text(
+                        '(${levelInfo.currentXp}/${levelInfo.xpTarget}xp)',
+                        style: const TextStyle(
+                          fontFamily: 'FredokaOne',
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
+                          fontStyle: FontStyle.italic,
+                          letterSpacing: 1.2,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '(${levelInfo.currentXp}/${levelInfo.xpTarget}xp)',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF444444),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-              // --- RIGHT COLUMN: MEDALS ---
+
+              const SizedBox(width: 14),
+
               Expanded(
-                // Use a Flex of 4 for Medals to ensure it gets enough width for the three icons/numbers
-                flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Medals:', style: labelTextStyle),
-                    const SizedBox(height: 8),
-                    Row(
-                      // IMPORTANT: Reduce spacing between medal components
-                      children: [
-                        Text('${totals.gold}', style: dataTextStyle),
-                        const SizedBox(width: 2), // TIGHTER SPACING
-                        _medalIcon(MedalType.gold),
-                        const SizedBox(width: 8), // REDUCED GAP
-                        Text('${totals.silver}', style: dataTextStyle),
-                        const SizedBox(width: 2), // TIGHTER SPACING
-                        _medalIcon(MedalType.silver),
-                        const SizedBox(width: 8), // REDUCED GAP
-                        Text('${totals.bronze}', style: dataTextStyle),
-                        const SizedBox(width: 2), // TIGHTER SPACING
-                        _medalIcon(MedalType.bronze),
-                      ],
-                    ),
-                  ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  decoration: BoxDecoration(
+                    color: blockColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    children: [
+                      Text('Medals:', style: labelStyle, textAlign: TextAlign.center),
+                      const SizedBox(height: 6),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('${totals.gold}', style: valueStyle),
+                          const SizedBox(width: 18),
+                          Text('${totals.silver}', style: valueStyle),
+                          const SizedBox(width: 18),
+                          Text('${totals.bronze}', style: valueStyle),
+                        ],
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _medalIcon(MedalType.gold),
+                          const SizedBox(width: 18),
+                          _medalIcon(MedalType.silver),
+                          const SizedBox(width: 18),
+                          _medalIcon(MedalType.bronze),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // --- STREAK ROW (Full Width) ---
-          RichText(
-            text: TextSpan(
-              style: dataTextStyle?.copyWith(fontStyle: FontStyle.italic),
-              children: <TextSpan>[
-                const TextSpan(text: 'Streak: ', style: TextStyle(fontStyle: FontStyle.italic)),
-                TextSpan(text: '$streak days', style: dataTextStyle),
-                const TextSpan(
-                  text: ' 🔥',
-                  style: TextStyle(fontSize: 24),
-                ),
-              ],
-            ),
-          ),
+          // -------------------------------------
+          //     STREAK — come nella HOME
+          // -------------------------------------
+          _StreakBanner(streakDays: streak),
         ],
       ),
     );
   }
 
-  // Adjusted medalIcon size
   Widget _medalIcon(MedalType medal) {
     return SizedBox(
-      width: 28,
-      height: 28,
+      width: 35,
+      height: 35,
       child: SvgPicture.asset(
         medalAssetForType(medal),
         colorFilter: medalTintForType(medal) == null
@@ -673,6 +701,54 @@ class _GradientBackground extends StatelessWidget {
             end: Alignment.bottomCenter,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _StreakBanner extends StatelessWidget {
+  const _StreakBanner({required this.streakDays});
+
+  final int streakDays;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCDCDC).withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center, // testo + fiamma centrati
+        children: [
+          Text(
+            '$streakDays DAYS STREAK',
+            style: TextStyle(
+              fontFamily: 'FredokaOne',
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
+              fontStyle: FontStyle.italic,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(width: 3),
+          Image.asset(
+            'assets/icons/fire_streak_icon.png', // 👈 percorso dell’immagine
+            width: 60,
+            height: 60,
+            fit: BoxFit.contain,
+          ),
+        ],
       ),
     );
   }

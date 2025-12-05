@@ -4,6 +4,7 @@ import 'package:skill_up/features/home/data/task_api.dart';
 import 'package:skill_up/features/home/domain/medal_utils.dart';
 import 'package:flutter/services.dart';
 import 'package:skill_up/shared/widgets/gradient_icon_button.dart';
+import 'package:skill_up/shared/widgets/gradient_text_field_card.dart';
 
 class PlanOverviewArgs {
   const PlanOverviewArgs({
@@ -41,6 +42,10 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
 
   late final Map<DateTime, List<RemoteTask>> _tasksByDay;
   late final List<DateTime> _sortedDays;
+
+  bool _isPlanReplanOpen = false;
+  String _planReplanText = '';
+  bool _isReplanningPlan = false;
 
   @override
   void initState() {
@@ -89,6 +94,52 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
       return;
     }
     Navigator.of(context).pop<PlanDecision>(PlanDecision.declined);
+  }
+
+  // --- REPLAN PIANO (mock) ---
+
+  void _openPlanReplan() {
+    setState(() {
+      _isPlanReplanOpen = true;
+      _planReplanText = '';
+    });
+  }
+
+  void _closePlanReplan() {
+    setState(() {
+      _isPlanReplanOpen = false;
+      _planReplanText = '';
+    });
+  }
+
+  void _submitPlanReplan(String text) {
+    final trimmed = text.trim();
+
+    _closePlanReplan();
+
+    if (trimmed.isEmpty) {
+      return;
+    }
+
+    // MOCK: niente API, solo loading + snackbar
+    setState(() {
+      _isReplanningPlan = true;
+    });
+
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() {
+        _isReplanningPlan = false;
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Plan replan request sent (mock).'),
+            duration: Duration(milliseconds: 1500),
+          ),
+        );
+    });
   }
 
   @override
@@ -190,18 +241,35 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
               ),
             ),
 
-            // 👇 PULSANTI FISSI, IN BASSO, SOPRA IL CONTENUTO
+            // 👇 PULSANTI FISSI
             Positioned(
-              bottom: 65,   // ⬆️ - prima era 24, ora li alziamo
+              bottom: 65,
               left: 0,
               right: 0,
               child: _ActionButtons(
                 loading: _processing,
                 onAccept: widget.args.deleteOnly ? null : _handleAccept,
-                onDecline: _handleDecline,
+                onDecline: _handleDecline,        // usato solo per REMOVE
+                onReplan: _openPlanReplan,        // 👈 NUOVO: apre popup
                 deleteOnly: widget.args.deleteOnly,
               ),
             ),
+
+            // 👇 OVERLAY REPLAN PIANO
+            if (_isPlanReplanOpen)
+              _PlanReplanOverlay(
+                planTitle: widget.args.prompt ?? 'Your plan',
+                initialText: _planReplanText,
+                onChanged: (value) {
+                  setState(() => _planReplanText = value);
+                },
+                onClose: _closePlanReplan,
+                onSubmit: _submitPlanReplan,
+              ),
+
+            // 👇 OVERLAY LOADING (mock replan)
+            if (_isReplanningPlan)
+              const _PlanReplanLoadingOverlay(),
           ],
         ),
       ),
@@ -405,47 +473,47 @@ class _ActionButtons extends StatelessWidget {
     required this.onDecline,
     required this.loading,
     this.onAccept,
+    this.onReplan,
     this.deleteOnly = false,
   });
 
   final VoidCallback? onAccept;
-  final VoidCallback onDecline;
+  final VoidCallback onDecline;   // per REMOVE
+  final VoidCallback? onReplan;   // per REPLAN
   final bool loading;
   final bool deleteOnly;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      bottom: 24,
-      left: 0,
-      right: 0,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: deleteOnly
-            ? [
-          GradientTextButton(
-            label: 'REMOVE',
-            onTap: loading ? () {} : onDecline,
-            width: 190,
-            height: 64,
-          ),
-        ]
-            : [
-          GradientTextButton(
-            label: 'REPLAN',
-            onTap: loading ? () {} : onDecline,
-            width: 190,
-            height: 64,
-          ),
-          const SizedBox(width: 20),
-          GradientTextButton(
-            label: 'ACCEPT',
-            onTap: loading ? () {} : (onAccept ?? () {}),
-            width: 190,
-            height: 64,
-          ),
-        ],
-      ),
+    // ⚠️ qui NON deve esserci più un Positioned, ci pensa già il parent
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: deleteOnly
+          ? [
+        GradientTextButton(
+          label: 'REMOVE',
+          onTap: loading ? () {} : onDecline,
+          width: 200,
+          height: 80,
+        ),
+      ]
+          : [
+        GradientTextButton(
+          label: 'REPLAN',
+          onTap: loading
+              ? () {}
+              : (onReplan ?? () {}),   // 👈 usa onReplan
+          width: 190,
+          height: 80,
+        ),
+        const SizedBox(width: 20),
+        GradientTextButton(
+          label: 'ACCEPT',
+          onTap: loading ? () {} : (onAccept ?? () {}),
+          width: 190,
+          height: 80,
+        ),
+      ],
     );
   }
 }
@@ -455,8 +523,8 @@ class GradientTextButton extends StatelessWidget {
     super.key,
     required this.onTap,
     required this.label,
-    this.width = 140,
-    this.height = 56,
+    this.width = 160,
+    this.height = 60,
   });
 
   final VoidCallback onTap;
@@ -474,15 +542,15 @@ class GradientTextButton extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           gradient: const LinearGradient(
-            colors: [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFF9A9E), Color(0xFFFFCF91)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black26,
+              color: Colors.black.withOpacity(0.20),
               blurRadius: 10,
-              offset: Offset(0, 6),
+              offset: const Offset(0, 6),
             ),
           ],
         ),
@@ -490,7 +558,7 @@ class GradientTextButton extends StatelessWidget {
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: 22,
+            fontSize: 28,
             fontWeight: FontWeight.w800,
             color: Colors.white,
             letterSpacing: 1.1,
@@ -728,6 +796,249 @@ class _WeekdayStrip extends StatelessWidget {
           ),
         );
       }),
+    );
+  }
+}
+
+class _PlanReplanOverlay extends StatefulWidget {
+  const _PlanReplanOverlay({
+    required this.planTitle,
+    required this.initialText,
+    required this.onChanged,
+    required this.onSubmit,
+    required this.onClose,
+  });
+
+  final String planTitle;
+  final String initialText;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onClose;
+
+  @override
+  State<_PlanReplanOverlay> createState() => _PlanReplanOverlayState();
+}
+
+class _PlanReplanOverlayState extends State<_PlanReplanOverlay> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _controller.addListener(_handleTextChanged);
+  }
+
+  void _handleTextChanged() {
+    widget.onChanged(_controller.text);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleTextChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onClose,
+        child: Container(
+          color: Colors.black.withOpacity(0.55),
+          child: Center(
+            child: GestureDetector(
+              onTap: () {}, // blocca il tap sul contenuto
+              child: Container(
+                width: 340,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 20,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Replan',
+                      style: TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.planTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'FiraCode',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0x99000000),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ✏️ TextField con bordo gradient (come retask)
+                    GradientTextFieldCard(
+                      controller: _controller,
+                      hintText:
+                      'What would you change in this plan? (goal, duration, intensity...)',
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // quick chips
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _PlanReplanChip(
+                          label: 'Too intense',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Too intense]'.trim();
+                          },
+                        ),
+                        _PlanReplanChip(
+                          label: 'Too long',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Too long]'.trim();
+                          },
+                        ),
+                        _PlanReplanChip(
+                          label: 'Wrong focus',
+                          onTap: () {
+                            _controller.text =
+                                '${_controller.text} [Wrong focus]'.trim();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    Align(
+                      alignment: Alignment.center,
+                      child: GradientIconButton(
+                        onTap: () => widget.onSubmit(_controller.text),
+                        width: 100,
+                        height: 56,
+                        iconSize: 32,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanReplanChip extends StatelessWidget {
+  const _PlanReplanChip({required this.label, this.onTap});
+
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFFE5E5E5),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'FiraCode',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.black,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanReplanLoadingOverlay extends StatelessWidget {
+  const _PlanReplanLoadingOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.35),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: Colors.black.withOpacity(1),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'assets/icons/loading_response.gif',
+                  width: 84,
+                  height: 84,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(width: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 180),
+                  child: Text(
+                    'The AI is\nreplanning your journey...',
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
