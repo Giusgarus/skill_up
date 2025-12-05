@@ -325,7 +325,7 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
 
             // 👇 PULSANTI FISSI
             Positioned(
-              bottom: 65,
+              bottom: 35,
               left: 0,
               right: 0,
               child: _ActionButtons(
@@ -579,7 +579,6 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ⚠️ qui NON deve esserci più un Positioned, ci pensa già il parent
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: deleteOnly
@@ -587,25 +586,26 @@ class _ActionButtons extends StatelessWidget {
         GradientTextButton(
           label: 'REMOVE',
           onTap: loading ? () {} : onDecline,
-          width: 200,
-          height: 80,
+          width: 180,          // 👈 più piccoli
+          height: 64,
+          isDestructive: true, // 👈 gradiente rosso
         ),
       ]
           : [
         GradientTextButton(
           label: 'REPLAN',
-          onTap: loading
-              ? () {}
-              : (onReplan ?? () {}),   // 👈 usa onReplan
-          width: 190,
-          height: 80,
+          onTap: loading ? () {} : (onReplan ?? () {}),
+          width: 170,
+          height: 64,
+          isDestructive: true, // 👈 gradiente rosso
         ),
-        const SizedBox(width: 20),
+        const SizedBox(width: 18),
         GradientTextButton(
           label: 'ACCEPT',
           onTap: loading ? () {} : (onAccept ?? () {}),
-          width: 190,
-          height: 80,
+          width: 170,
+          height: 64,
+          // 👈 ACCEPT resta col gradiente “normale”
         ),
       ],
     );
@@ -619,12 +619,14 @@ class GradientTextButton extends StatelessWidget {
     required this.label,
     this.width = 160,
     this.height = 60,
+    this.isDestructive = false,
   });
 
   final VoidCallback onTap;
   final String label;
   final double width;
   final double height;
+  final bool isDestructive; // 👈 nuovo parametro
 
   @override
   Widget build(BuildContext context) {
@@ -635,10 +637,14 @@ class GradientTextButton extends StatelessWidget {
         height: height,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF9A9E), Color(0xFFFFCF91)],
+          gradient: LinearGradient(
+            colors: isDestructive
+            // 🔴 REMOVE / REPLAN: finisce in FF5C5C
+                ? const [Color(0xFFFF9A9E), Color(0xFFFF5C5C)]
+            // 🟡 ACCEPT: stessi colori dei bottoni principali
+                : const [Color(0xFFFF9A9E), Color(0xFFFFCF71)],
             begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
+            end: Alignment.centerRight, // 👈 da sinistra a destra
           ),
           boxShadow: [
             BoxShadow(
@@ -652,7 +658,7 @@ class GradientTextButton extends StatelessWidget {
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: 28,
+            fontSize: 24,             // 👈 leggermente più piccolo
             fontWeight: FontWeight.w800,
             color: Colors.white,
             letterSpacing: 1.1,
